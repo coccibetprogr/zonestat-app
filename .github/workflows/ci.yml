@@ -7,9 +7,9 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
-      # ENV safe pour un build "prod" en CI
+      # ENV safe pour build Next "prod" en CI
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
       NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy.dummy"
@@ -46,7 +46,8 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
 
-      - name: Install Playwright browsers (CLI + deps)
+      # ⬇️ Méthode officielle Playwright: CLI + deps système
+      - name: Install Playwright browsers and system deps
         run: pnpm exec playwright install --with-deps
 
       - name: Build app
