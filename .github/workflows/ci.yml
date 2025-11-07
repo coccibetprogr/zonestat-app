@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      - name: Build app
+        run: pnpm build
+
+      - name: Start app & run E2E tests
+        run: |
+          pnpm start &
+          npx wait-on http://localhost:3000
+          BASE_URL=http://localhost:3000 pnpm test:e2e
