@@ -1,0 +1,14 @@
+{
+  // Désactive le validateur CSS par défaut (il ne comprend pas Tailwind)
+  "css.validate": false,
+
+  // Demande à VSCode de traiter les .css comme du Tailwind (pas du CSS brut)
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+
+  // Autocomplétion des classes Tailwind dans les chaînes (optionnel mais utile)
+  "editor.quickSuggestions": {
+    "strings": true
+  }
+}
