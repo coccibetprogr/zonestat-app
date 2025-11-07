@@ -9,7 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      # ENV safe pour un build prod en CI
+      # ENV safe pour un build "prod" en CI
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
       NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy.dummy"
@@ -46,14 +46,11 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
 
+      - name: Install Playwright browsers (CLI + deps)
+        run: pnpm exec playwright install --with-deps
+
       - name: Build app
         run: pnpm build
-
-      # ⬇️ Étape qui corrige ton erreur: installe navigateurs + deps système
-      - name: Install Playwright browsers
-        uses: microsoft/playwright-github-action@v1
-        with:
-          with-deps: true
 
       - name: Start app
         run: pnpm start &
