@@ -16,27 +16,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Debug: montre le dossier courant et la liste des fichiers (on doit y voir pnpm-lock.yaml)
-      - name: Debug repo root
+      - name: Debug files (pwd / ls / find lockfile)
         run: |
+          echo "PWD:"
           pwd
+          echo "--- LS -LA root"
           ls -la
+          echo "--- Find pnpm-lock.yaml (depth 3)"
+          find . -maxdepth 3 -name pnpm-lock.yaml -print
 
-      # 1) Setup Node et active le cache PNPM en acceptant le lockfile où qu'il soit
-      - name: Setup Node.js (cache pnpm, glob lockfile)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: '**/pnpm-lock.yaml'   # 👈 accepte racine ou sous-dossier
-
-      # 2) Installe pnpm (après setup-node)
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      # 3) Autorise les builds natifs (sharp/esbuild) sur le runner
+      - name: Setup Node.js (no cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Approve native builds (sharp/esbuild)
         run: pnpm config set allowed-builds '["esbuild","sharp","unrs-resolver"]'
 
@@ -49,7 +47,7 @@ jobs:
       - name: Build app
         run: pnpm build
 
-      - name: Start app (background)
+      - name: Start app
         run: pnpm start &
 
       - name: Wait for app
