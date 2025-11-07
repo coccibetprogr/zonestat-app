@@ -8,18 +8,28 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
+      RL_KEY_SECRET: "ci-secret"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Approve native builds (sharp/esbuild)
+        run: pnpm config set allowed-builds '["esbuild","sharp","unrs-resolver"]'
 
       - name: Install dependencies
         run: pnpm install
@@ -30,8 +40,11 @@ jobs:
       - name: Build app
         run: pnpm build
 
-      - name: Start app & run E2E tests
-        run: |
-          pnpm start &
-          npx wait-on http://localhost:3000
-          BASE_URL=http://localhost:3000 pnpm test:e2e
+      - name: Start app
+        run: pnpm start &
+
+      - name: Wait for app
+        run: npx --yes wait-on@7 http://localhost:3000
+
+      - name: Run e2e tests
+        run: BASE_URL=http://localhost:3000 pnpm test:e2e
