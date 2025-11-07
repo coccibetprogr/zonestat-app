@@ -8,10 +8,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: zonestat-app   # 👈 ton projet réel
-
     env:
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
       RL_KEY_SECRET: "ci-secret"
@@ -20,17 +16,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug repo root
+        run: |
+          pwd
+          ls -la
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - name: Setup Node.js
+      - name: Setup Node.js (cache pnpm via lockfile à la racine)
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: zonestat-app/pnpm-lock.yaml   # 👈 chemin complet
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Approve native builds (sharp/esbuild)
         run: pnpm config set allowed-builds '["esbuild","sharp","unrs-resolver"]'
