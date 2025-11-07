@@ -9,8 +9,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
+      # ---- ENV nécessaires pour un build Next "prod" en CI (valeurs safe/dummy) ----
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
+      # Supabase (public) — valeurs factices suffisantes pour le build
+      NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy.dummy"
+      # Turnstile — clés de TEST Cloudflare (OK pour CI)
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
+      # Rate limit — fallback mémoire utilisera ceci
       RL_KEY_SECRET: "ci-secret"
+      # (Upstash non requis en CI : fallback mémoire actif)
 
     steps:
       - name: Checkout
