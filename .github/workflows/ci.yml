@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug repo root
+      - name: Debug root (ls)
         run: |
           pwd
           ls -la
@@ -26,12 +26,10 @@ jobs:
         with:
           version: 10
 
-      - name: Setup Node.js (cache pnpm via lockfile à la racine)
+      - name: Setup Node.js (no cache)
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Approve native builds (sharp/esbuild)
         run: pnpm config set allowed-builds '["esbuild","sharp","unrs-resolver"]'
