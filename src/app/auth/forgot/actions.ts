@@ -2,23 +2,23 @@
 "use server";
 
 import { headers } from "next/headers";
+import { actionClient } from "@/utils/supabase/action";
 import { rateLimit } from "@/utils/rateLimit";
 import { verifyTurnstile } from "@/lib/turnstile";
-import { z } from "zod";
-import crypto from "node:crypto";
-import { log } from "@/utils/observability/log";
 import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import { log } from "@/utils/observability/log";
+import crypto from "node:crypto";
+import { z } from "zod";
 
 export type ForgotState = {
   ok?: boolean;
   error?: string;
-  email?: string;
 };
 
 const forgotSchema = z.object({
   email: z.string().trim().email("Adresse email invalide."),
-  turnstile: z.string().trim().optional(),
   csrf: z.string().trim().min(8, "Jeton CSRF manquant."),
+  turnstile: z.string().trim().optional(),
 });
 
 function decodeMaybe(value: string): string {
@@ -28,7 +28,7 @@ function decodeMaybe(value: string): string {
     return value;
   }
 }
-function extractTokenOnly(raw: string): string {
+function tokenOnly(raw: string): string {
   const decoded = decodeMaybe(raw || "");
   return (decoded.split(":")[0] || "").trim();
 }
@@ -36,7 +36,7 @@ function extractTokenOnly(raw: string): string {
 function rlKey(...parts: string[]) {
   const secret = process.env.RL_KEY_SECRET;
   if (process.env.NODE_ENV === "production" && !secret) {
-    log.error?.("rateLimit.missing_rl_key_secret_in_prod");
+    log.error("rateLimit.missing_rl_key_secret_in_prod");
     throw new Error("Rate limit secret missing in production");
   }
   const hmac = crypto.createHmac("sha256", String(secret || "dev-only"));
@@ -44,72 +44,94 @@ function rlKey(...parts: string[]) {
   return hmac.digest("hex").slice(0, 48);
 }
 
-export async function forgotAction(
-  _prev: unknown,
-  formData: FormData
-): Promise<ForgotState> {
+export async function forgotAction(_prev: unknown, formData: FormData): Promise<ForgotState> {
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const csrfRaw = String(formData.get("csrf") || "").trim();
   const tsRaw = formData.get("cf-turnstile-response");
   const turnstile = typeof tsRaw === "string" ? tsRaw.trim() : undefined;
 
-  const parsed = forgotSchema.safeParse({ email, turnstile, csrf: csrfRaw });
+  const parsed = forgotSchema.safeParse({ email, csrf: csrfRaw, turnstile });
   if (!parsed.success) return { ok: false, error: "Données invalides." };
 
   const h = await headers();
 
-  // ---- ORIGIN CHECK (helper centralisé) ----
+  // Origin
   const allowed = getAllowedOriginsFromHeaders(h, "http://local");
   const reqOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(reqOrigin, allowed)) {
     return { ok: false, error: "Requête invalide (Origin)." };
   }
 
-  // ---- Rate-limit (HMAC, pas de PII) ----
+  // CSRF double-submit (token only)
+  const cookieRaw = h.get("cookie")?.match(/(?:^|;\s*)csrf=([^;]+)/)?.[1] || "";
+  const cookieToken = tokenOnly(cookieRaw);
+  const bodyToken = tokenOnly(csrfRaw);
+  if (!cookieToken || !bodyToken || cookieToken !== bodyToken) {
+    return { ok: false, error: "Requête invalide (CSRF)." };
+  }
+
+  // Rate limit (HMAC, pas de PII en clair)
   const ip =
     h.get("x-real-ip") ||
     h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     "127.0.0.1";
-
-  let ipKey: string;
-  let acctKey: string;
+  let ipKey: string, acctKey: string;
   try {
     ipKey = rlKey("forgot:ip", ip);
     acctKey = rlKey("forgot:acct", email);
   } catch (e: any) {
-    log.error?.("auth.forgot.rlkey_error", { error: e?.message || String(e) });
+    log.error("auth.forgot.rlkey_error", { error: e?.message || String(e) });
     return { ok: false, error: "Service temporairement indisponible." };
   }
-
   const rlIp = await rateLimit(ipKey);
   if (!rlIp.ok) return { ok: false, error: "Trop de tentatives, réessaie plus tard." };
   const rlAcct = await rateLimit(acctKey);
   if (!rlAcct.ok) return { ok: false, error: "Trop de tentatives, réessaie plus tard." };
 
-  // ---- Turnstile (requis seulement si secret + sitekey présents) ----
+  // Turnstile (requis seulement si secret + sitekey configurés)
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
   const secret =
     process.env.TURNSTILE_SECRET_KEY?.trim() ||
     process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY?.trim();
   const requireCaptcha = Boolean(siteKey && secret);
-
-  if (requireCaptcha && !turnstile) {
-    return { ok: false, error: "Captcha manquant." };
-  }
-  if (requireCaptcha && turnstile) {
-    const ok = await verifyTurnstile(turnstile);
-    if (!ok) return { ok: false, error: "Vérification anti-bot échouée." };
-  }
-
-  // ---- CSRF (token-only; tolérant encodage) ----
-  const cookieRaw =
-    h.get("cookie")?.match(/(?:^|;\s*)csrf=([^;]+)/)?.[1] || "";
-  const cookieToken = extractTokenOnly(cookieRaw);
-  const bodyToken = extractTokenOnly(csrfRaw);
-
-  if (!cookieToken || !bodyToken || cookieToken !== bodyToken) {
-    return { ok: false, error: "Requête invalide (CSRF)." };
+  if (requireCaptcha) {
+    if (!turnstile) {
+      return { ok: false, error: "Captcha manquant." };
+    }
+    const captchaOk = await verifyTurnstile(turnstile, { ip });
+    if (!captchaOk) {
+      return { ok: false, error: "Vérification anti-bot échouée." };
+    }
   }
 
-  return { ok: true, email };
+  // === ENVOI RÉEL DE L’EMAIL CÔTÉ SERVEUR ===
+  try {
+    // Origine de redirection robuste
+    const computedOrigin =
+      (reqOrigin && (() => { try { return new URL(String(reqOrigin)).origin; } catch { return null; } })()) ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      "http://localhost:3000";
+    const originSafe = new URL(computedOrigin).origin.replace(/\/+$/, "");
+
+    const supabase = await actionClient(); // cookies mutables côté serveur
+    const { error: supaErr } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${originSafe}/auth/update-password`,
+    });
+
+    if (supaErr) {
+      // on log, mais on **ne révèle rien** côté client (anti-énumération)
+      log.warn("auth.forgot.supabase_reset_error", {
+        code: (supaErr as any)?.status || (supaErr as any)?.code,
+        message: (supaErr as any)?.message || String(supaErr),
+      });
+    }
+  } catch (err: any) {
+    log.error("auth.forgot.server_send_error", {
+      error: err?.message || String(err),
+    });
+    // on ne casse pas le flux utilisateur
+  }
+
+  // Toujours message générique côté client (anti-énumération)
+  return { ok: true };
 }
