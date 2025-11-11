@@ -182,9 +182,9 @@ export default function ForgotPasswordPage() {
   return (
     <div className="max-w-md mx-auto w-full fade-in-up">
       <div className="card card-hover p-8 sm:p-10 text-center">
-        {/* Titre reste identique pour une structure SSR stable */}
+        {/* Titre stable attendu par le test E2E */}
         <h1 className="text-2xl font-semibold mb-2">
-          Réinitialiser le mot de passe
+          Mot de passe oublié
         </h1>
 
         {/* Sous-titre change légèrement selon l'état mais reste en place */}
@@ -240,8 +240,6 @@ export default function ForgotPasswordPage() {
                   sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!}
                   onVerify={(tok: string) => setTurnstileToken(tok)}
                   onExpire={() => setTurnstileToken("")}
-                  // NB: certaines versions n'exposent pas onLoad/onError dans les typings
-                  // "data-theme" reste supporté comme attribut data-*
                   data-theme="light"
                 />
               </div>
