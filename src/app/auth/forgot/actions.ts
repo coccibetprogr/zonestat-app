@@ -1,7 +1,7 @@
 // src/app/auth/forgot/actions.ts
 "use server";
 
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { actionClient } from "@/utils/supabase/action";
 import { rateLimit } from "@/utils/rateLimit";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -55,22 +55,29 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
 
   const h = await headers();
 
-  // Origin
+  // ---- ORIGIN CHECK (helper centralisé) ----
   const allowed = getAllowedOriginsFromHeaders(h, "http://local");
   const reqOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(reqOrigin, allowed)) {
     return { ok: false, error: "Requête invalide (Origin)." };
   }
 
-  // CSRF double-submit (token only)
-  const cookieRaw = h.get("cookie")?.match(/(?:^|;\s*)csrf=([^;]+)/)?.[1] || "";
-  const cookieToken = tokenOnly(cookieRaw);
+  // ---- CSRF (double-submit): ⚠️ lire le cookie via Next cookies() (fiable en Server Action)
+  const jar = await cookies();
+  const csrfCookieRaw = jar.get("csrf")?.value || "";
+  const cookieToken = tokenOnly(csrfCookieRaw);
   const bodyToken = tokenOnly(csrfRaw);
+
   if (!cookieToken || !bodyToken || cookieToken !== bodyToken) {
+    log.warn("auth.forgot.csrf_mismatch", {
+      hasBody: Boolean(bodyToken),
+      hasCookie: Boolean(cookieToken),
+      same: cookieToken === bodyToken,
+    });
     return { ok: false, error: "Requête invalide (CSRF)." };
   }
 
-  // Rate limit (HMAC, pas de PII en clair)
+  // ---- Rate limit (HMAC, pas de PII en clair)
   const ip =
     h.get("x-real-ip") ||
     h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -88,7 +95,7 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
   const rlAcct = await rateLimit(acctKey);
   if (!rlAcct.ok) return { ok: false, error: "Trop de tentatives, réessaie plus tard." };
 
-  // Turnstile (requis seulement si secret + sitekey configurés)
+  // ---- Turnstile (requis seulement si secret + sitekey configurés)
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
   const secret =
     process.env.TURNSTILE_SECRET_KEY?.trim() ||
@@ -106,14 +113,14 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
 
   // === ENVOI RÉEL DE L’EMAIL CÔTÉ SERVEUR ===
   try {
-    // Origine de redirection robuste
+    // Origine de redirection robuste et whitelistable
     const computedOrigin =
       (reqOrigin && (() => { try { return new URL(String(reqOrigin)).origin; } catch { return null; } })()) ||
       process.env.NEXT_PUBLIC_SITE_URL ||
       "http://localhost:3000";
     const originSafe = new URL(computedOrigin).origin.replace(/\/+$/, "");
 
-    const supabase = await actionClient(); // cookies mutables côté serveur
+    const supabase = await actionClient(); // server-side client (anon) avec cookies mutables
     const { error: supaErr } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${originSafe}/auth/update-password`,
     });
@@ -124,12 +131,14 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
         code: (supaErr as any)?.status || (supaErr as any)?.code,
         message: (supaErr as any)?.message || String(supaErr),
       });
+    } else {
+      log.info?.("auth.forgot.reset_sent", { email_hash: rlKey("hash", email) });
     }
   } catch (err: any) {
     log.error("auth.forgot.server_send_error", {
       error: err?.message || String(err),
     });
-    // on ne casse pas le flux utilisateur
+    // ne casse pas l’UX (anti-énumération), on retourne quand même ok
   }
 
   // Toujours message générique côté client (anti-énumération)
