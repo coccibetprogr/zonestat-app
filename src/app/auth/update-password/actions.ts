@@ -2,59 +2,23 @@
 "use server";
 
 import { headers, cookies } from "next/headers";
+import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import { rateLimit } from "@/utils/rateLimit";
+import { log } from "@/utils/observability/log";
+import crypto from "node:crypto";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 export type UpdatePwGateState = { ok?: boolean; error?: string };
 
-async function verifyTurnstile(
-  responseToken?: string,
-  remoteIp?: string | null
-): Promise<boolean> {
-  const secret =
-    process.env.TURNSTILE_SECRET_KEY ||
-    process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY;
-  if (!secret) return true;         // bypass si pas de secret
-  if (!responseToken) return false;
-
-  try {
-    const body = new URLSearchParams();
-    body.set("secret", secret);
-    body.set("response", responseToken);
-    if (remoteIp) body.set("remoteip", remoteIp);
-
-    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body,
-    });
-    const data = (await res.json()) as { success?: boolean };
-    return !!data.success;
-  } catch {
-    return false;
+function rlKey(...parts: string[]) {
+  const secret = process.env.RL_KEY_SECRET;
+  if (process.env.NODE_ENV === "production" && !secret) {
+    log.error("rateLimit.missing_rl_key_secret_in_prod");
+    throw new Error("Rate limit secret missing in production");
   }
-}
-
-function normalizeOrigin(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-function computeAllowedOrigin(host: string | null, protoHint?: string | null): string | null {
-  if (!host) return null;
-  const normalizedHost = host.trim();
-  if (!normalizedHost) return null;
-  if (protoHint) return `${protoHint}://${normalizedHost}`;
-  const hostname = normalizedHost.split(":")[0]?.toLowerCase() || "";
-  const isLocal =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname.startsWith("192.168.") ||
-    hostname.startsWith("10.");
-  const proto = isLocal ? "http" : "https";
-  return `${proto}://${normalizedHost}`;
+  const hmac = crypto.createHmac("sha256", String(secret || "dev-only"));
+  hmac.update(parts.join("|"));
+  return hmac.digest("hex").slice(0, 48);
 }
 
 export async function updatePasswordGate(
@@ -64,36 +28,14 @@ export async function updatePasswordGate(
   const h = await headers();
   const jar = await cookies();
 
-  // Origin allow-list
-  const forwardedHost = h.get("x-forwarded-host");
-  const host = h.get("host");
-  const protoHint = h.get("x-forwarded-proto");
-  const inferredOrigin =
-    computeAllowedOrigin(forwardedHost, protoHint) ||
-    computeAllowedOrigin(host, protoHint);
-  const fallbackHostOrigin = computeAllowedOrigin(host, protoHint);
-  const envOrigin = (() => {
-    const envUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-    if (!envUrl) return null;
-    try {
-      return new URL(envUrl.replace(/\/+$/, "")).origin;
-    } catch {
-      return null;
-    }
-  })();
-  const allowed = new Set(
-    [envOrigin, inferredOrigin, fallbackHostOrigin].filter(Boolean) as string[]
-  );
-  const requestOrigin =
-    normalizeOrigin(h.get("origin")) ||
-    normalizeOrigin(h.get("referer")) ||
-    inferredOrigin ||
-    fallbackHostOrigin;
-  if (!requestOrigin || !allowed.has(requestOrigin)) {
+  // ---- ORIGIN CHECK (helper centralisé) ----
+  const allowed = getAllowedOriginsFromHeaders(h, "http://local");
+  const requestOrigin = h.get("origin") || h.get("referer");
+  if (!isOriginAllowed(requestOrigin, allowed)) {
     return { error: "Requête invalide (origin)." };
   }
 
-  // CSRF token-only
+  // ---- CSRF token-only ----
   const csrfBodyEntry = formData.get("csrf");
   const csrfBodyToken =
     typeof csrfBodyEntry === "string"
@@ -104,10 +46,30 @@ export async function updatePasswordGate(
     return { error: "Requête invalide (csrf)." };
   }
 
-  // Rate-limit léger (tu peux garder ton implémentation existante ici si tu en as une)
-  // …
+  // ---- RATE LIMIT (HMAC; IP + compte/email si présent) ----
+  const ip =
+    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    h.get("x-real-ip") ||
+    "unknown";
 
-  // Turnstile : requis UNIQUEMENT si secret + sitekey → widget affiché côté client
+  let keyIp: string, keyAcct: string;
+  try {
+    const email = (formData.get("email") || "").toString().toLowerCase();
+    keyIp = rlKey("updatepw:ip", ip);
+    keyAcct = rlKey("updatepw:acct", email || ip);
+  } catch (e: any) {
+    log.error("auth.updatepw.rlkey_error", { error: e?.message || String(e) });
+    return { error: "Service temporairement indisponible." };
+  }
+
+  const rlA = await rateLimit(keyIp);
+  const rlB = await rateLimit(keyAcct);
+  if (!rlA.ok || !rlB.ok) {
+    log.warn("auth.updatepw.rate_limited", { ip });
+    return { error: "Trop de tentatives. Réessaie plus tard." };
+  }
+
+  // ---- Turnstile requis uniquement si secret + sitekey présents ----
   const secret =
     process.env.TURNSTILE_SECRET_KEY ||
     process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ||
@@ -121,11 +83,7 @@ export async function updatePasswordGate(
     return { error: "Captcha manquant." };
   }
   if (captchaRequired && captchaToken) {
-    const ip =
-      h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      h.get("x-real-ip") ||
-      null;
-    const okCaptcha = await verifyTurnstile(captchaToken, ip);
+    const okCaptcha = await verifyTurnstile(captchaToken, { ip });
     if (!okCaptcha) {
       return { error: "Vérification anti-bot échouée. Réessaie." };
     }
