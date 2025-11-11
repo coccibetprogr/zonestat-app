@@ -1,91 +1,93 @@
 // src/utils/rateLimit.ts
-// Production: Upstash/Redis prioritaire ; SI indisponible/mal configuré → en production on *ne pas* basculer en fallback mémoire (fail-closed).
-// Non-prod: fallback mémoire toléré (DX).
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 
-const IS_PROD = process.env.NODE_ENV === "production";
+type UpstashResponse = {
+  success: boolean;
+  limit?: number;
+  remaining?: number;
+  reset?: number;
+  pending?: number;
+};
 
-type Hit = { count: number; first: number };
-const MEM_BUCKET = new Map<string, Hit>();
-const WINDOW_MS = 60_000; // 1 min
-const LIMIT_UPSTASH = 20; // cible
-const LIMIT_MEMORY = 10;  // un peu plus strict en fallback
-
-function inMemoryRateLimit(key: string) {
-  const now = Date.now();
-  const rec = MEM_BUCKET.get(key);
-  if (!rec || now - rec.first > WINDOW_MS) {
-    MEM_BUCKET.set(key, { count: 1, first: now });
-    return { ok: true };
-  }
-  rec.count += 1;
-  if (rec.count > LIMIT_MEMORY) return { ok: false };
-  return { ok: true };
+declare global {
+  // eslint-disable-next-line no-var
+  var __zonestat_rl__:
+    | {
+        redis: Redis | null;
+        limiter: Ratelimit | null;
+      }
+    | undefined;
 }
 
-let limiterPromise:
-  | Promise<{ limit: (key: string) => Promise<{ success: boolean }> }>
-  | null = null;
+const hasUpstash =
+  Boolean(process.env.UPSTASH_REDIS_REST_URL) &&
+  Boolean(process.env.UPSTASH_REDIS_REST_TOKEN);
 
-async function getUpstashLimiter() {
-  if (limiterPromise) return limiterPromise;
+function getLimiter() {
+  if (!hasUpstash) return { redis: null, limiter: null } as const;
 
-  limiterPromise = (async () => {
-    const url = process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-    if (!url || !token) {
-      // Indique explicitement l'absence de config
-      throw new Error("Upstash env missing");
-    }
-    // @ts-ignore shims via src/types/upstash.d.ts
-    const { Ratelimit } = await import("@upstash/ratelimit");
-    // @ts-ignore shims via src/types/upstash.d.ts
-    const { Redis } = await import("@upstash/redis");
+  if (!global.__zonestat_rl__) {
+    const redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
 
-    const redis = new Redis({ url, token });
     const limiter = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(LIMIT_UPSTASH, "1 m"),
+      limiter: Ratelimit.slidingWindow(5, "30 s"),
+      analytics: true,
+      prefix: "zonestat:rl",
     });
-    return limiter;
-  })();
 
-  return limiterPromise;
+    global.__zonestat_rl__ = { redis, limiter };
+  }
+  return global.__zonestat_rl__!;
 }
 
-// --- utilitaire sûr pour extraire un message d'erreur depuis `unknown`
-function errMsg(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return String(e);
-  }
-}
+export type RateLimitResult = {
+  ok: boolean;
+  limit?: number;
+  remaining?: number;
+  reset?: number;
+  reason?: string;
+};
 
-export async function rateLimit(key: string) {
-  try {
-    const limiter = await getUpstashLimiter();
-    const { success } = await limiter.limit(key);
-    return { ok: success };
-  } catch (e: unknown) {
-    // En prod : fail-closed — si Upstash indisponible, refuser (protéger l'application).
-    if (IS_PROD) {
-      try {
-        // eslint-disable-next-line no-console
-        console.error("[rateLimit] Upstash indisponible en production -> fail-closed", errMsg(e));
-      } catch {
-        /* noop */
-      }
-      return { ok: false };
-    }
-    // En dev/test : fallback mémoire pour la DX
-    try {
-      // eslint-disable-next-line no-console
-      console.warn("[rateLimit] Upstash indisponible -> fallback mémoire (dev/test)", errMsg(e));
-    } catch {
-      /* noop */
-    }
-    return inMemoryRateLimit(key);
+export async function rateLimit(
+  key: string,
+  opts?: { limit?: number; window?: `${number} ${"s" | "m" | "h"}` }
+): Promise<RateLimitResult> {
+  if (!hasUpstash) {
+    return { ok: true, reason: "upstash_not_configured" };
   }
+
+  const { limiter } = getLimiter();
+  if (!limiter) {
+    return { ok: true, reason: "limiter_not_initialized" };
+  }
+
+  if (opts?.limit || opts?.window) {
+    const custom = new Ratelimit({
+      redis: (limiter as any).redis as Redis,
+      limiter: Ratelimit.slidingWindow(opts?.limit ?? 5, opts?.window ?? "30 s"),
+      analytics: true,
+      prefix: "zonestat:rl",
+    });
+
+    const r = (await custom.limit(key)) as UpstashResponse;
+    return {
+      ok: r.success,
+      limit: r.limit,
+      remaining: r.remaining,
+      reset: r.reset,
+    };
+  }
+
+  const r = (await limiter.limit(key)) as UpstashResponse;
+  return {
+    ok: r.success,
+    limit: r.limit,
+    remaining: r.remaining,
+    reset: r.reset,
+  };
 }
