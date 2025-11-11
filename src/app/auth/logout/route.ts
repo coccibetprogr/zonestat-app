@@ -6,7 +6,7 @@ import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/
 
 export async function POST(req: Request) {
   // ---- Origin check (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(req.headers, req.url);
+  const allowed = getAllowedOriginsFromHeaders(req.headers);
   if (!isOriginAllowed(req.headers.get("origin"), allowed)) {
     return new NextResponse("Invalid origin", { status: 403 });
   }
