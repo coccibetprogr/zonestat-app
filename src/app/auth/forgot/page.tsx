@@ -43,7 +43,10 @@ export default function ForgotPasswordPage() {
   const [turnstileMountKey, setTurnstileMountKey] = useState(0);
   const localSubmitLock = useRef(false);
 
-  const turnstileEnabled = !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  // Désactive Turnstile en dehors de la prod (ex. CI)
+  const turnstileEnabled =
+    process.env.NODE_ENV === "production" &&
+    !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   useEffect(() => {
     setCsrf(readCsrfToken());
@@ -83,7 +86,6 @@ export default function ForgotPasswordPage() {
       setError(null);
 
       if (hpRef.current && hpRef.current.value) {
-        // ✅ texte EXACT attendu par le test
         setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
         return;
       }
@@ -136,7 +138,6 @@ export default function ForgotPasswordPage() {
 
           if (supaErr) {
             if (String(supaErr.message || "").includes("over_email_send_rate_limit")) {
-              // ✅ texte EXACT attendu par le test (même en cas de rate-limit)
               setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
               setError(null);
             } else {
@@ -146,7 +147,6 @@ export default function ForgotPasswordPage() {
             return;
           }
 
-          // ✅ succès — texte EXACT attendu par le test
           setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
           setError(null);
         } catch (e: unknown) {
@@ -254,11 +254,9 @@ export default function ForgotPasswordPage() {
               style={{ borderColor: "var(--color-success)", color: "var(--color-success)" }}
               aria-live="polite"
             >
-              {/* ✅ message exact ciblé par le test */}
               {message}
             </div>
 
-            {/* ✅ libellé EXACT attendu par le test */}
             <Link href="/login" className="btn btn-primary w-full">
               Revenir à la connexion
             </Link>
