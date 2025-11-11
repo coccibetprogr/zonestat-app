@@ -78,13 +78,14 @@ export default function ForgotPasswordPage() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (pending || localSubmitLock.current) return;
+    if (pending || localSubmitLock.current) return; // anti double-clic
     localSubmitLock.current = true;
 
     try {
       setMessage(null);
       setError(null);
 
+      // Honeypot
       if (hpRef.current && hpRef.current.value) {
         setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
         return;
@@ -111,20 +112,29 @@ export default function ForgotPasswordPage() {
       startTransition(async () => {
         let res: ForgotState | null = null;
         try {
+          // 1) Validation serveur (Origin / rate-limit / Turnstile / CSRF)
           res = await forgotAction(null, fd);
         } catch (err) {
+          // En cas d’exception serveur, on passe quand même en message générique (anti-énumération)
           console.error("forgotAction threw:", err);
-          fail("Requête invalide.");
+          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
+          setError(null);
           return;
         }
 
+        // ✅ Toujours anti-énumération côté client :
+        // si le serveur dit "ok" => on envoie l'email via Supabase ;
+        // si le serveur dit "pas ok" => on affiche tout de même le message générique.
         const ok = !!res?.ok;
+
         if (!ok) {
-          fail(res?.error || "Requête invalide.");
+          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
+          setError(null);
           return;
         }
 
         try {
+          // 2) Envoi réel de l’email via Supabase — redirectTo = host courant
           const candidate =
             typeof window !== "undefined"
               ? window.location.origin
@@ -142,16 +152,21 @@ export default function ForgotPasswordPage() {
               setError(null);
             } else {
               console.error("Supabase error:", supaErr.message);
-              fail("Impossible d’envoyer l’email pour le moment. Réessaie dans 1 minute.");
+              // Même en cas d’erreur, message générique (anti-énumération)
+              setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
+              setError(null);
             }
             return;
           }
 
+          // ✅ succès
           setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
           setError(null);
         } catch (e: unknown) {
           console.error("Client error:", e);
-          fail("Erreur côté navigateur. Réessaie.");
+          // Même fallback anti-énumération
+          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
+          setError(null);
         }
       });
     } finally {
