@@ -29,7 +29,7 @@ export async function updatePasswordGate(
   const jar = await cookies();
 
   // ---- ORIGIN CHECK (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(h, "http://local");
+  const allowed = getAllowedOriginsFromHeaders(h);
   const requestOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(requestOrigin, allowed)) {
     return { error: "Requête invalide (origin)." };
