@@ -1,16 +1,14 @@
-// src/app/signup/SignupForm.tsx
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-
-type State = { error?: string; success?: string };
+import type { ForgotState } from "./actions";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending} className="btn btn-primary w-full">
-      {pending ? "Création…" : "Créer mon compte"}
+      {pending ? "Envoi…" : "Envoyer le lien"}
     </button>
   );
 }
@@ -33,18 +31,16 @@ function extractToken(value: string | null | undefined): string {
   return token || "";
 }
 
-export default function SignupForm({
+export default function ForgotForm({
   action,
-  next,
   turnstileSiteKey,
   csrf,
 }: {
-  action: (state: State, formData: FormData) => Promise<State>;
-  next: string;
+  action: (state: ForgotState, formData: FormData) => Promise<ForgotState>;
   turnstileSiteKey: string;
   csrf: string;
 }) {
-  const [state, formAction] = useActionState(action, {} as State);
+  const [state, formAction] = useActionState(action, {} as ForgotState);
   const [csrfLocal, setCsrfLocal] = useState<string>(csrf || "");
   const captchaRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -124,7 +120,6 @@ export default function SignupForm({
         if (token) setCsrfLocal((prev) => (token !== prev ? token : prev));
       }}
     >
-      <input type="hidden" name="next" value={next} />
       <input type="hidden" name="csrf" value={csrfValue} />
 
       <div className="space-y-3">
@@ -132,18 +127,9 @@ export default function SignupForm({
           name="email"
           type="email"
           required
-          placeholder="Email"
+          placeholder="ton@email.com"
           className="input"
           autoComplete="email"
-        />
-        <input
-          name="password"
-          type="password"
-          required
-          placeholder="Mot de passe (min. 6 caractères)"
-          className="input"
-          autoComplete="new-password"
-          minLength={6}
         />
       </div>
 
@@ -158,14 +144,14 @@ export default function SignupForm({
       <SubmitButton />
 
       <div className="min-h-[1.25rem]" aria-live="polite">
+        {state?.ok && (
+          <p className="text-[13px]" style={{ color: "var(--color-success)" }}>
+            Si un compte existe avec cet email, un lien a été envoyé.
+          </p>
+        )}
         {state?.error && (
           <p className="text-[13px]" style={{ color: "var(--color-danger)" }}>
             {state.error}
-          </p>
-        )}
-        {state?.success && (
-          <p className="text-[13px]" style={{ color: "var(--color-success)" }}>
-            {state.success}
           </p>
         )}
       </div>

@@ -15,6 +15,12 @@ function readCookie(name: string): string | null {
   return null;
 }
 
+function extractToken(value: string | null | undefined): string {
+  if (!value) return "";
+  const token = value.split(":")[0]?.trim();
+  return token || "";
+}
+
 export default function LogoutForm({ buttonClassName }: { buttonClassName?: string }) {
   const [csrfLocal, setCsrfLocal] = useState<string>("");
 
@@ -24,8 +30,9 @@ export default function LogoutForm({ buttonClassName }: { buttonClassName?: stri
 
     const sync = () => {
       const value = readCookie("csrf") || "";
-      if (!mounted || !value) return;
-      setCsrfLocal((prev) => (value !== prev ? value : prev));
+      const token = extractToken(value);
+      if (!mounted || !token) return;
+      setCsrfLocal((prev) => (token !== prev ? token : prev));
     };
 
     async function ensureCsrf() {
@@ -58,8 +65,9 @@ export default function LogoutForm({ buttonClassName }: { buttonClassName?: stri
       method="POST"
       action="/auth/logout"
       onSubmit={() => {
-        const latest = readCookie("csrf") || "";
-        if (latest) setCsrfLocal((prev) => (latest !== prev ? latest : prev));
+        const latest = readCookie("csrf");
+        const token = extractToken(latest);
+        if (token) setCsrfLocal((prev) => (token !== prev ? token : prev));
       }}
     >
       <input type="hidden" name="csrf" value={csrfValue} />

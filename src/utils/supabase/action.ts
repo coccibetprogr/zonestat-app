@@ -17,21 +17,23 @@ if (process.env.NODE_ENV === "production") {
 export async function actionClient() {
   const cookieStore = await cookies();
 
-  return createServerClient(
-    SUPABASE_URL!,
-    SUPABASE_ANON!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options?: any) {
-          cookieStore.delete({ name, ...(options ?? {}) } as any);
-        },
+  return createServerClient(SUPABASE_URL!, SUPABASE_ANON!, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
       },
-    }
-  );
+      set(name: string, value: string, options?: any) {
+        cookieStore.set({ name, value, ...options });
+      },
+      remove(name: string, options?: any) {
+        cookieStore.delete({ name, ...(options ?? {}) } as any);
+      },
+    },
+    // ✅ Empêche Supabase d'utiliser PKCE pour les liens email
+    auth: {
+      flowType: "implicit",
+      // Pour les Server Actions on évite de persister côté serveur
+      persistSession: false,
+    },
+  });
 }

@@ -13,34 +13,82 @@ import crypto from "crypto";
 export type LoginState = { error?: string };
 
 function rlKey(...parts: string[]) {
-  const secret = process.env.RL_KEY_SECRET || "dev-only";
-  const h = crypto.createHash("sha256");
-  h.update([secret, ...parts].join("|"));
-  return h.digest("hex").slice(0, 48);
+  const secret = process.env.RL_KEY_SECRET;
+  if (process.env.NODE_ENV === "production" && !secret) {
+    // en prod, on exige la présence du secret pour produire des clés fiables
+    log.error("rateLimit.missing_rl_key_secret_in_prod");
+    // throw ou renvoyer une clé non déterministe ? On renvoie une valeur spéciale
+    // pour que le caller puisse échouer proprement et éviter d'exposer un fallback non sécurisé.
+    throw new Error("Rate limit secret missing in production");
+  }
+  // Utiliser HMAC plutôt que hash simple pour lier le secret
+  const hmac = crypto.createHmac("sha256", String(secret || "dev-only"));
+  hmac.update(parts.join("|"));
+  return hmac.digest("hex").slice(0, 48);
+}
+
+function normalizeOrigin(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function computeAllowedOrigin(host: string | null | undefined, protoHint?: string | null): string | null {
+  if (!host) return null;
+  const normalizedHost = host.trim();
+  if (!normalizedHost) return null;
+  if (protoHint) return `${protoHint}://${normalizedHost}`;
+  const hostname = normalizedHost.split(":")[0]?.toLowerCase() || "";
+  const isLocal =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("10.");
+  const proto = isLocal ? "http" : "https";
+  return `${proto}://${normalizedHost}`;
 }
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const h = await headers();
 
   // ---- ORIGIN CHECK ----
-  const origin = h.get("origin");
-  const host = h.get("host") || "localhost:3000";
-  const allowedOrigin =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim()
-      ? new URL(process.env.NEXT_PUBLIC_SITE_URL).origin
-      : `http${host.startsWith("localhost") ? "" : "s"}://${host}`;
-  if (!origin || origin !== allowedOrigin) {
+  const forwardedHost = h.get("x-forwarded-host");
+  const host = h.get("host");
+  const protoHint = h.get("x-forwarded-proto");
+  const inferredOrigin =
+    computeAllowedOrigin(forwardedHost, protoHint) ||
+    computeAllowedOrigin(host, protoHint);
+  const envOrigin = (() => {
+    const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+    if (!raw) return null;
+    try {
+      return new URL(raw.replace(/\/+$/, "")).origin;
+    } catch {
+      return null;
+    }
+  })();
+  const allowed = new Set([envOrigin, inferredOrigin].filter(Boolean) as string[]);
+  const requestOrigin =
+    normalizeOrigin(h.get("origin")) ||
+    normalizeOrigin(h.get("referer")) ||
+    inferredOrigin;
+  if (!requestOrigin || !allowed.has(requestOrigin)) {
     return { error: "Requête invalide (origin)." };
   }
 
   // ---- CSRF (double-submit) ----
-  const csrfBody = formData.get("csrf")?.toString() || "";
-  const csrfCookie = (await cookies()).get("csrf")?.value || "";
-  if (!csrfBody || !csrfCookie || csrfBody !== csrfCookie) {
+  const csrfBodyRaw = formData.get("csrf")?.toString().trim() || "";
+  const csrfBodyToken = csrfBodyRaw.split(":")[0] || csrfBodyRaw;
+  const csrfCookieRaw = (await cookies()).get("csrf")?.value || "";
+  const csrfCookieToken = csrfCookieRaw.split(":")[0] || csrfCookieRaw;
+  if (!csrfBodyToken || !csrfCookieToken || csrfBodyToken !== csrfCookieToken) {
     log.warn("auth.login.csrf_mismatch", {
-      hasBody: Boolean(csrfBody),
-      hasCookie: Boolean(csrfCookie),
-      same: csrfBody === csrfCookie,
+      hasBody: Boolean(csrfBodyToken),
+      hasCookie: Boolean(csrfCookieToken),
+      same: csrfBodyToken === csrfCookieToken,
     });
     return { error: "Requête invalide (csrf)." };
   }
@@ -52,9 +100,19 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
 
   // ---- RATE LIMIT ----
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
-  const rlIp = await rateLimit(rlKey("login:ip", ip));
+  let rlIpKey: string;
+  let rlAcctKey: string;
+  try {
+    rlIpKey = rlKey("login:ip", ip);
+    rlAcctKey = rlKey("login:acct", email.toLowerCase(), ip);
+  } catch (e: any) {
+    log.error("auth.login.rlkey_error", { error: e?.message || String(e) });
+    return { error: "Erreur serveur (config). Contacte l’administrateur." };
+  }
+
+  const rlIp = await rateLimit(rlIpKey);
   if (!rlIp.ok) return { error: "Trop de tentatives. Réessaie plus tard." };
-  const rlAcct = await rateLimit(rlKey("login:acct", email.toLowerCase(), ip));
+  const rlAcct = await rateLimit(rlAcctKey);
   if (!rlAcct.ok) return { error: "Trop de tentatives. Réessaie plus tard." };
 
   // ---- TURNSTILE TOUJOURS APPELÉ ----

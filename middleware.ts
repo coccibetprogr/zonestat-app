@@ -1,25 +1,36 @@
-// middleware.ts
 import { NextResponse, NextRequest } from "next/server";
 
-// Aucun import externe pour fiabiliser le middleware
 const IS_PROD = process.env.NODE_ENV === "production";
 
-/** CSP durcie (Stripe + Turnstile), COOP/CORP + COEP, OAC, HSTS(prod) */
-function buildCSP() {
+/** Génère un nonce sécurisé par requête pour CSP */
+function generateNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString("base64url");
+}
+
+/** CSP durcie (avec nonce dynamique, Stripe, Turnstile, Supabase) */
+function buildCSP(nonce: string) {
   const directives = [
     "default-src 'self'",
-    ["script-src", "'self'", "https://challenges.cloudflare.com", "https://js.stripe.com"].join(" "),
+    [
+      "script-src",
+      `'self'`,
+      `'nonce-${nonce}'`,
+      "https://challenges.cloudflare.com",
+      "https://js.stripe.com",
+    ].join(" "),
     [
       "connect-src",
       "'self'",
       "https://*.supabase.co",
+      "wss://*.supabase.co",
       "https://api.stripe.com",
       "https://challenges.cloudflare.com",
     ].join(" "),
     ["img-src", "'self'", "data:", "blob:", "https://*.supabase.co"].join(" "),
-    ["style-src", "'self'"].join(" "),
+    ["style-src", "'self'", "'unsafe-inline'"].join(" "), // pour Tailwind/Next
     ["font-src", "'self'", "data:"].join(" "),
-    // Stripe hébergé (Checkout/Portal) + Turnstile
     [
       "frame-src",
       "'self'",
@@ -30,16 +41,22 @@ function buildCSP() {
     ].join(" "),
     ["object-src", "'none'"].join(" "),
     ["frame-ancestors", "'none'"].join(" "),
-    // Tolérance si un jour un POST direct vers Stripe est utilisé
-    ["form-action", "'self'", "https://challenges.cloudflare.com", "https://checkout.stripe.com", "https://billing.stripe.com"].join(" "),
+    [
+      "form-action",
+      "'self'",
+      "https://challenges.cloudflare.com",
+      "https://checkout.stripe.com",
+      "https://billing.stripe.com",
+    ].join(" "),
     "upgrade-insecure-requests",
     ["base-uri", "'self'"].join(" "),
   ];
   return directives.join("; ");
 }
 
-function applySecurityHeaders(_req: NextRequest, res: NextResponse) {
-  res.headers.set("Content-Security-Policy", buildCSP());
+/** Ajout des en-têtes de sécurité globaux */
+function applySecurityHeaders(_req: NextRequest, res: NextResponse, nonce: string) {
+  res.headers.set("Content-Security-Policy", buildCSP(nonce));
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("X-Frame-Options", "DENY");
@@ -70,15 +87,22 @@ function applySecurityHeaders(_req: NextRequest, res: NextResponse) {
     ].join(", "),
   );
   if (IS_PROD) {
-    res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+    res.headers.set(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains; preload",
+    );
   }
   res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  // Ajout COEP pour compléter l’isolation
   res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
   res.headers.set("Origin-Agent-Cluster", "?1");
-  // Marqueur diagnostic pour voir le middleware dans l’onglet Network
+
+  // Marqueur debug (curl)
   res.headers.set("X-Middleware-Active", "1");
+
+  // ✅ Injection du nonce dans la réponse (utilisable par les scripts inline)
+  res.headers.set("x-csp-nonce", nonce);
+
   return res;
 }
 
@@ -126,22 +150,24 @@ function stampCsrf(res: NextResponse, req: NextRequest) {
   res.cookies.set("csrf", stamped, {
     httpOnly: false, // double-submit (lisible client)
     secure: isHttps,
-    sameSite: isHttps ? "strict" : "lax",
+    sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60, // 1h
+    maxAge: Math.floor(6 * 60 * 60),
   });
 
   return res;
 }
 
+/** Middleware global : CSRF + CSP + headers sécurité */
 export function middleware(req: NextRequest) {
+  const nonce = generateNonce();
   let res = NextResponse.next();
   res = stampCsrf(res, req);
-  return applySecurityHeaders(req, res);
+  res = applySecurityHeaders(req, res, nonce);
+  return res;
 }
 
+/** Matcher large compatible App Router */
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|mp4|webm)).*)",
-  ],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };

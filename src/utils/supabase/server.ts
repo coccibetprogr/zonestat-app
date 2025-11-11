@@ -1,45 +1,86 @@
-// src/utils/supabase/server.ts
-import { cookies } from "next/headers";
+/**
+ * utils/supabase/server.ts
+ * -----------------------------------------------------
+ * Factory Supabase côté serveur (Next.js 16)
+ * - Corrigé pour await cookies()
+ * - Lecture/écriture des cookies SSR
+ * - Compatible RSC / layout / middleware
+ * -----------------------------------------------------
+ */
+
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-if (process.env.NODE_ENV === "production") {
-  if (!SUPABASE_URL || !SUPABASE_ANON) {
-    throw new Error(
-      "Missing Supabase config in production: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY"
-    );
-  }
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error("[supabase/server] Config Supabase manquante (URL ou clé publique)");
 }
 
 /**
- * Client Supabase côté serveur (RSC). On NE MODIFIE PAS les cookies ici.
- * Les mutations (set/remove) doivent se faire dans une Route Handler ou Server Action
- * où l'on a accès à la réponse (ex: POST /auth/logout).
+ * Crée un client Supabase complet (lecture/écriture)
+ * pour les layouts ou les pages serveur.
  */
-export async function serverClient() {
+export async function serverClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
 
-  return createServerClient(
-    SUPABASE_URL!,
-    SUPABASE_ANON!,
-    {
-      cookies: {
-        get(name: string) {
-          try {
-            return cookieStore.get(name)?.value;
-          } catch {
-            return undefined;
-          }
-        },
-        set(_name: string, _value: string, _options?: any) {
-          // no-op en RSC
-        },
-        remove(_name: string, _options?: any) {
-          // no-op en RSC
-        },
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
       },
-    }
-  );
+      set(name: string, value: string, options: any) {
+        try {
+          cookieStore.set({ name, value, ...options });
+        } catch {
+          // Certaines exécutions RSC interdisent l’écriture — on ignore.
+        }
+      },
+      remove(name: string, options: any) {
+        try {
+          cookieStore.set({ name, value: "", ...options });
+        } catch {
+          // idem
+        }
+      },
+    },
+  });
+
+  return supabase;
+}
+
+/**
+ * Crée un client Supabase lecture seule (middleware, API)
+ */
+export async function serverClientReadOnly(): Promise<SupabaseClient> {
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set() {
+        /* lecture seule */
+      },
+      remove() {
+        /* lecture seule */
+      },
+    },
+  });
+
+  return supabase;
+}
+
+/**
+ * Helper pour récupérer directement l'utilisateur côté serveur.
+ */
+export async function getServerUser() {
+  const supabase = await serverClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
 }

@@ -27,6 +27,12 @@ function readCookie(name: string): string | null {
   return null;
 }
 
+function extractToken(value: string | null | undefined): string {
+  if (!value) return "";
+  const token = value.split(":")[0]?.trim();
+  return token || "";
+}
+
 export default function LoginForm({
   action,
   next,
@@ -40,16 +46,21 @@ export default function LoginForm({
 }) {
   const [state, formAction] = useActionState(action, {} as State);
   const [csrfLocal, setCsrfLocal] = useState<string>(csrf || "");
+
+  // --- Turnstile (widget natif) ---
   const captchaRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const [tsToken, setTsToken] = useState<string>(""); // token courant
+  const turnstileEnabled = !!turnstileSiteKey;
 
   useEffect(() => {
     let mounted = true;
 
     const sync = () => {
       const value = readCookie("csrf") || "";
-      if (!mounted || !value) return;
-      setCsrfLocal((prev) => (value !== prev ? value : prev));
+      const token = extractToken(value);
+      if (!mounted || !token) return;
+      setCsrfLocal((prev) => (token !== prev ? token : prev));
     };
 
     async function ensureCsrf() {
@@ -78,10 +89,11 @@ export default function LoginForm({
   const csrfValue = useMemo(() => csrfLocal || "", [csrfLocal]);
 
   useEffect(() => {
-    if (!turnstileSiteKey) return;
+    if (!turnstileEnabled) return;
     const el = captchaRef.current;
     if (!el) return;
 
+    // On (re)rend le widget jusqu’à ce que window.turnstile soit prêt
     function renderIfReady() {
       const ts: any = (window as any).turnstile;
       if (!ts || widgetIdRef.current) return;
@@ -89,8 +101,19 @@ export default function LoginForm({
         widgetIdRef.current = ts.render(el, {
           sitekey: turnstileSiteKey,
           theme: "light",
+          callback: (token: string) => {
+            setTsToken(token);
+          },
+          "expired-callback": () => {
+            setTsToken("");
+          },
+          "error-callback": () => {
+            setTsToken("");
+          },
         });
-      } catch {}
+      } catch {
+        // on réessaie via l’interval
+      }
     }
 
     renderIfReady();
@@ -104,20 +127,58 @@ export default function LoginForm({
       const ts: any = (window as any).turnstile;
       if (ts && widgetIdRef.current) ts.remove(widgetIdRef.current);
       widgetIdRef.current = null;
+      setTsToken("");
     };
-  }, [turnstileSiteKey]);
+  }, [turnstileEnabled, turnstileSiteKey]);
 
   return (
     <form
-      action={formAction}
-      className="space-y-5 text-sm fade-in-up"
-      onSubmit={() => {
-        const latest = readCookie("csrf") || "";
-        if (latest) setCsrfLocal((prev) => (latest !== prev ? latest : prev));
+      action={async (fd: FormData) => {
+        // -- Sync CSRF depuis cookie juste avant l’envoi --
+        const latest = readCookie("csrf");
+        const token = extractToken(latest);
+        const toSend = token || csrfValue;
+        if (token) setCsrfLocal((prev) => (token !== prev ? token : prev));
+        fd.set("csrf", toSend);
+
+        // -- Normalisation email --
+        const email = String(fd.get("email") || "").trim().toLowerCase();
+        fd.set("email", email);
+
+        // -- Injecte le token Turnstile si activé --
+        if (turnstileEnabled) {
+          if (!tsToken) {
+            // On simule une erreur côté client : l’action retournera {error} si voulue, mais on peut aussi l’afficher ici.
+            // On met quand même une valeur vide pour cohérence
+            fd.set("cf-turnstile-response", "");
+          } else {
+            fd.set("cf-turnstile-response", tsToken);
+          }
+        }
+
+        // Envoie au server action
+        await formAction(fd);
       }}
+      className="space-y-5 text-sm fade-in-up"
+      onSubmit={(e) => {
+        // (optionnel) hard-block si captcha requis mais manquant
+        if (turnstileEnabled && !tsToken) {
+          e.preventDefault();
+          // Option UX : on peut mettre un message d’erreur local ici si besoin
+          // mais on conserve ta logique d'erreur côté action pour uniformité.
+          return;
+        }
+        const latest = readCookie("csrf");
+        const token = extractToken(latest);
+        if (token) setCsrfLocal((prev) => (token !== prev ? token : prev));
+      }}
+      aria-describedby={state?.error ? "login-error" : undefined}
     >
       <input type="hidden" name="next" value={next} />
       <input type="hidden" name="csrf" value={csrfValue} />
+      {turnstileEnabled && (
+        <input type="hidden" name="cf-turnstile-response" value={tsToken} readOnly />
+      )}
 
       <div className="space-y-3">
         <input
@@ -127,6 +188,7 @@ export default function LoginForm({
           placeholder="Email"
           className="input"
           autoComplete="email"
+          aria-invalid={!!state?.error || undefined}
         />
         <input
           name="password"
@@ -135,10 +197,12 @@ export default function LoginForm({
           placeholder="Mot de passe"
           className="input"
           autoComplete="current-password"
+          minLength={6}
+          aria-invalid={!!state?.error || undefined}
         />
       </div>
 
-      {turnstileSiteKey ? (
+      {turnstileEnabled ? (
         <div
           ref={captchaRef}
           className="captcha-shell !border-0 !bg-transparent !shadow-none !p-0"
@@ -150,7 +214,7 @@ export default function LoginForm({
 
       <div className="min-h-[1.25rem]" aria-live="polite">
         {state?.error && (
-          <p className="text-[13px]" style={{ color: "var(--color-danger)" }}>
+          <p id="login-error" className="text-[13px]" style={{ color: "var(--color-danger)" }}>
             {state.error}
           </p>
         )}

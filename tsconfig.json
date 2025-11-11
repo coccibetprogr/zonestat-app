@@ -20,7 +20,8 @@
     ],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "typeRoots": ["./src/types", "./node_modules/@types"]  // ✅ ajouté ici
   },
   "include": [
     "next-env.d.ts",

@@ -10,7 +10,7 @@ export default async function SignupPage({ searchParams }: {
   const sp = await searchParams;
   const next = (Array.isArray(sp?.next) ? sp?.next[0] : sp?.next) || "/";
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
-  const csrf = (await cookies()).get("csrf")?.value || "";
+  const csrf = (await cookies()).get("csrf")?.value?.split(":")?.[0] || "";
 
   return (
     <div className="max-w-md mx-auto w-full fade-in-up">

@@ -1,12 +1,12 @@
 // src/app/csrf/route.ts
-"use server";
-
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
 
+export const dynamic = "force-dynamic"; // ⬅️ empêche le cache statique
+
 function generateToken() {
-  return randomBytes(16).toString("hex");
+  return randomBytes(16).toString("hex"); // le contenu n’a pas d’importance, on compare juste avant “:”
 }
 
 function detectHttps(request: Request) {
@@ -17,23 +17,25 @@ function detectHttps(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const cookieStore = await cookies();
-  const existing = cookieStore.get("csrf")?.value;
+  const jar = await cookies();
+  const existing = jar.get("csrf")?.value;
   const value = existing || `${generateToken()}:${Date.now()}`;
   const isHttps = detectHttps(request);
 
-  const response = NextResponse.json(
+  const res = NextResponse.json(
     { csrf: value, has: true, refreshed: !existing },
     { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } },
   );
 
-  response.cookies.set("csrf", value, {
+  // ⚠️ httpOnly:false car on utilise un double-submit token (le client doit le lire)
+  // 🔒 SameSite:lax (stable en http/https)
+  res.cookies.set("csrf", value, {
     httpOnly: false,
     secure: isHttps,
-    sameSite: isHttps ? "strict" : "lax",
+    sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60,
+    maxAge: 6 * 60 * 60, // 6h
   });
 
-  return response;
+  return res;
 }

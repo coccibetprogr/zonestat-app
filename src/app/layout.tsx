@@ -1,7 +1,4 @@
 // src/app/layout.tsx
-// NOTE: Layout SSR conservé (lecture user côté serveur) + force-dynamic.
-// Cette version préserve ton header conditionnel EXACT, sans rien retirer.
-
 import "./globals.css";
 import Link from "next/link";
 import Script from "next/script";
@@ -13,20 +10,15 @@ export const metadata = {
   description: "Le match avant le match.",
 };
 
-// ⚠️ Conservé tel quel pour que le header reflète toujours la session côté serveur.
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Lecture SSR de la session Supabase (inchangée)
   const supabase = await serverClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   return (
     <html lang="fr">
       <body className="bg-bg text-fg-base min-h-screen flex flex-col">
-        {/* Script Turnstile conservé */}
         {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? (
           <Script
             src="https://challenges.cloudflare.com/turnstile/v0/api.js"
@@ -43,7 +35,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 Zone<span style={{ color: "var(--color-primary)" }}>Stat</span>
               </Link>
 
-              {/* Nav desktop : strictement identique */}
               <nav className="hidden md:flex items-center gap-6 text-sm">
                 {user ? (
                   <div className="flex items-center gap-3">
@@ -58,7 +49,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 )}
               </nav>
 
-              {/* Menu mobile : strictement identique */}
               <details className="md:hidden relative">
                 <summary
                   className="list-none h-10 w-10 rounded-full flex items-center justify-center border border-line hover:bg-bg-hover cursor-pointer"

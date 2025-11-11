@@ -12,6 +12,21 @@ function normalizeOrigin(value: string) {
   }
 }
 
+function computeAllowedOrigin(host: string | null, protoHint?: string | null) {
+  if (!host) return null;
+  const normalizedHost = host.trim();
+  if (!normalizedHost) return null;
+  if (protoHint) return `${protoHint}://${normalizedHost}`;
+  const hostname = normalizedHost.split(":")[0]?.toLowerCase() || "";
+  const isLocal =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("10.");
+  const proto = isLocal ? "http" : "https";
+  return `${proto}://${normalizedHost}`;
+}
+
 function getAllowedOrigins(req: Request) {
   const origins = new Set<string>();
 
@@ -22,12 +37,13 @@ function getAllowedOrigins(req: Request) {
   }
 
   // Déduire proto/host du contexte (dev: http + IP LAN OK)
-  const host = new URL(req.url).host || "localhost:3000";
   const hdrProto = req.headers.get("x-forwarded-proto");
-  const hdrOrigin = req.headers.get("origin") || "";
-  const urlProto = new URL(req.url).protocol.replace(":", "");
-  const proto = hdrProto || (hdrOrigin.startsWith("https://") ? "https" : urlProto || "http");
-  origins.add(`${proto}://${host}`);
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const fromForwarded = computeAllowedOrigin(forwardedHost, hdrProto);
+  if (fromForwarded) origins.add(fromForwarded);
+  const urlHost = new URL(req.url).host || null;
+  const fromUrl = computeAllowedOrigin(urlHost, hdrProto);
+  if (fromUrl) origins.add(fromUrl);
 
   return origins;
 }
@@ -52,9 +68,11 @@ export async function POST(req: Request) {
 
   // CSRF double-submit
   const form = await req.formData();
-  const csrfBody = form.get("csrf")?.toString() || "";
-  const csrfCookie = (await cookies()).get("csrf")?.value || "";
-  if (!csrfBody || !csrfCookie || csrfBody !== csrfCookie) {
+  const csrfBodyRaw = form.get("csrf")?.toString().trim() || "";
+  const csrfBodyToken = csrfBodyRaw.split(":")[0] || csrfBodyRaw;
+  const csrfCookieRaw = (await cookies()).get("csrf")?.value || "";
+  const csrfCookieToken = csrfCookieRaw.split(":")[0] || csrfCookieRaw;
+  if (!csrfBodyToken || !csrfCookieToken || csrfBodyToken !== csrfCookieToken) {
     return new NextResponse("Invalid csrf", { status: 403 });
   }
 
