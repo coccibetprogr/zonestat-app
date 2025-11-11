@@ -28,7 +28,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const h = await headers();
 
   // ---- ORIGIN CHECK (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(h, "http://local");
+  const allowed = getAllowedOriginsFromHeaders(h);
   const requestOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(requestOrigin, allowed)) {
     return { error: "Requête invalide (origin)." };
@@ -80,6 +80,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const supabase = await actionClient(); // cookies mutables
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    // petit délai pour ne pas permettre le timing attack
     await new Promise((r) => setTimeout(r, 300));
     return { error: "Email ou mot de passe incorrect." };
   }
