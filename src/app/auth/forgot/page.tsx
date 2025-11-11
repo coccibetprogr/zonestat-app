@@ -5,7 +5,6 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { forgotAction } from "./actions";
-import { supabaseImplicit } from "@/utils/supabase/client";
 import Turnstile from "react-turnstile";
 import Link from "next/link";
 
@@ -20,10 +19,7 @@ function Spinner() {
 
 function readCsrfToken(): string {
   if (typeof document === "undefined") return "";
-  const entry =
-    document.cookie
-      ?.split("; ")
-      .find((r) => r.startsWith("csrf=")) || "";
+  const entry = document.cookie?.split("; ").find((r) => r.startsWith("csrf=")) || "";
   if (!entry) return "";
   const rawValue = entry.split("=")[1] || "";
   const decoded = decodeURIComponent(rawValue);
@@ -43,7 +39,7 @@ export default function ForgotPasswordPage() {
   const [turnstileMountKey, setTurnstileMountKey] = useState(0);
   const localSubmitLock = useRef(false);
 
-  // Désactive Turnstile en dehors de la prod (ex. CI)
+  // Turnstile actif seulement en prod (CI deterministe, UX stable dev)
   const turnstileEnabled =
     process.env.NODE_ENV === "production" &&
     !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
@@ -78,7 +74,7 @@ export default function ForgotPasswordPage() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (pending || localSubmitLock.current) return; // anti double-clic
+    if (pending || localSubmitLock.current) return;
     localSubmitLock.current = true;
 
     try {
@@ -102,9 +98,7 @@ export default function ForgotPasswordPage() {
 
       const fd = new FormData(e.currentTarget);
       fd.set("email", normalizedEmail);
-      const latestCsrf = readCsrfToken() || csrf;
-      fd.set("csrf", latestCsrf);
-      if (latestCsrf && latestCsrf !== csrf) setCsrf(latestCsrf);
+      fd.set("csrf", readCsrfToken() || csrf);
       if (turnstileEnabled) {
         fd.set("cf-turnstile-response", turnstileToken);
       }
@@ -112,62 +106,18 @@ export default function ForgotPasswordPage() {
       startTransition(async () => {
         let res: ForgotState | null = null;
         try {
-          // 1) Validation serveur (Origin / rate-limit / Turnstile / CSRF)
+          // ✅ l’envoi de l’email est désormais fait côté serveur dans forgotAction
           res = await forgotAction(null, fd);
         } catch (err) {
-          // En cas d’exception serveur, on passe quand même en message générique (anti-énumération)
-          console.error("forgotAction threw:", err);
+          // Anti-énumération : message générique quoi qu’il arrive
           setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
           setError(null);
           return;
         }
 
-        // ✅ Toujours anti-énumération côté client :
-        // si le serveur dit "ok" => on envoie l'email via Supabase ;
-        // si le serveur dit "pas ok" => on affiche tout de même le message générique.
-        const ok = !!res?.ok;
-
-        if (!ok) {
-          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
-          setError(null);
-          return;
-        }
-
-        try {
-          // 2) Envoi réel de l’email via Supabase — redirectTo = host courant
-          const candidate =
-            typeof window !== "undefined"
-              ? window.location.origin
-              : process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-          const origin = new URL(candidate).origin.replace(/\/+$/, "");
-
-          const { error: supaErr } = await supabaseImplicit.auth.resetPasswordForEmail(
-            normalizedEmail,
-            { redirectTo: `${origin}/auth/update-password` }
-          );
-
-          if (supaErr) {
-            if (String(supaErr.message || "").includes("over_email_send_rate_limit")) {
-              setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
-              setError(null);
-            } else {
-              console.error("Supabase error:", supaErr.message);
-              // Même en cas d’erreur, message générique (anti-énumération)
-              setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
-              setError(null);
-            }
-            return;
-          }
-
-          // ✅ succès
-          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
-          setError(null);
-        } catch (e: unknown) {
-          console.error("Client error:", e);
-          // Même fallback anti-énumération
-          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
-          setError(null);
-        }
+        // Toujours message générique (anti-énumération)
+        setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
+        setError(null);
       });
     } finally {
       setTimeout(() => {
@@ -216,13 +166,16 @@ export default function ForgotPasswordPage() {
               />
             </div>
 
+            {/* Honeypot anti-bots */}
             <div aria-hidden="true" className="hidden">
               <label htmlFor={hpName}>Ne pas remplir</label>
               <input id={hpName} name={hpName} ref={hpRef} type="text" tabIndex={-1} />
             </div>
 
+            {/* CSRF */}
             <input type="hidden" name="csrf" value={csrf} />
 
+            {/* Turnstile uniquement si configuré et en prod */}
             {turnstileEnabled && (
               <div key={turnstileMountKey} className="flex justify-center">
                 <Turnstile
@@ -245,6 +198,7 @@ export default function ForgotPasswordPage() {
 
             {pending && <Spinner />}
 
+            {/* Zone messages */}
             <div className="min-h-[1.25rem]" aria-live="polite" aria-atomic="true">
               {error && (
                 <div
