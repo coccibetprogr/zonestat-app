@@ -1,8 +1,5 @@
 // src/utils/security/origin.ts
 // Helper centralisé pour valider l’Origin en environnement proxy (Vercel/Cloudflare) sans se faire spoof.
-// - Source de vérité prioritaire : NEXT_PUBLIC_SITE_URL (si défini)
-// - Host direct (req.url / host)
-// - x-forwarded-* UNIQUEMENT si TRUST_PROXY=true ET qu’on détecte un header proxy de confiance
 
 const TRUSTED_HINT_HEADERS = ["x-vercel-id", "cf-ray", "x-forwarded-proto"];
 
@@ -38,7 +35,8 @@ function trustedProxyPresent(h: Headers): boolean {
   return false;
 }
 
-export function getAllowedOriginsFromHeaders(h: Headers, reqUrl: string): Set<string> {
+// ⚠️ Nouvelle signature : plus besoin de reqUrl
+export function getAllowedOriginsFromHeaders(h: Headers): Set<string> {
   const set = new Set<string>();
 
   // 1) NEXT_PUBLIC_SITE_URL prioritaire
@@ -46,12 +44,8 @@ export function getAllowedOriginsFromHeaders(h: Headers, reqUrl: string): Set<st
   const siteOrigin = site ? norm(site) : null;
   if (siteOrigin) set.add(siteOrigin);
 
-  // 2) Host (depuis req.url et header host)
-  const urlHost = new URL(reqUrl).host || null;
+  // 2) Host de la requête (avec x-forwarded-proto quand présent)
   const proto = h.get("x-forwarded-proto") || null;
-  const fromUrl = fromHost(urlHost, proto);
-  if (fromUrl) set.add(fromUrl);
-
   const host = h.get("host");
   const fromHostDirect = fromHost(host, proto);
   if (fromHostDirect) set.add(fromHostDirect);

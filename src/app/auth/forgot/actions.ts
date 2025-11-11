@@ -56,13 +56,13 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
   const h = await headers();
 
   // ---- ORIGIN CHECK (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(h, "http://local");
+  const allowed = getAllowedOriginsFromHeaders(h);
   const reqOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(reqOrigin, allowed)) {
     return { ok: false, error: "Requête invalide (Origin)." };
   }
 
-  // ---- CSRF (double-submit): ⚠️ lire le cookie via Next cookies() (fiable en Server Action)
+  // ---- CSRF (double-submit): cookies() fiable en Server Action ----
   const jar = await cookies();
   const csrfCookieRaw = jar.get("csrf")?.value || "";
   const cookieToken = tokenOnly(csrfCookieRaw);
@@ -77,7 +77,7 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
     return { ok: false, error: "Requête invalide (CSRF)." };
   }
 
-  // ---- Rate limit (HMAC, pas de PII en clair)
+  // ---- Rate limit (HMAC, pas de PII en clair) ----
   const ip =
     h.get("x-real-ip") ||
     h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -95,13 +95,16 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
   const rlAcct = await rateLimit(acctKey);
   if (!rlAcct.ok) return { ok: false, error: "Trop de tentatives, réessaie plus tard." };
 
-  // ---- Turnstile (requis seulement si secret + sitekey configurés)
+  // ---- Turnstile (⚠️ prod seulement, comme la page) ----
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
   const secret =
     process.env.TURNSTILE_SECRET_KEY?.trim() ||
     process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY?.trim();
-  const requireCaptcha = Boolean(siteKey && secret);
-  if (requireCaptcha) {
+
+  const captchaRequired =
+    process.env.NODE_ENV === "production" && Boolean(siteKey && secret);
+
+  if (captchaRequired) {
     if (!turnstile) {
       return { ok: false, error: "Captcha manquant." };
     }
@@ -113,20 +116,18 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
 
   // === ENVOI RÉEL DE L’EMAIL CÔTÉ SERVEUR ===
   try {
-    // Origine de redirection robuste et whitelistable
     const computedOrigin =
       (reqOrigin && (() => { try { return new URL(String(reqOrigin)).origin; } catch { return null; } })()) ||
       process.env.NEXT_PUBLIC_SITE_URL ||
       "http://localhost:3000";
     const originSafe = new URL(computedOrigin).origin.replace(/\/+$/, "");
 
-    const supabase = await actionClient(); // server-side client (anon) avec cookies mutables
+    const supabase = await actionClient(); // anon client côté serveur (cookies mutables)
     const { error: supaErr } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${originSafe}/auth/update-password`,
     });
 
     if (supaErr) {
-      // on log, mais on **ne révèle rien** côté client (anti-énumération)
       log.warn("auth.forgot.supabase_reset_error", {
         code: (supaErr as any)?.status || (supaErr as any)?.code,
         message: (supaErr as any)?.message || String(supaErr),
@@ -138,9 +139,9 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
     log.error("auth.forgot.server_send_error", {
       error: err?.message || String(err),
     });
-    // ne casse pas l’UX (anti-énumération), on retourne quand même ok
+    // on ne casse pas l’UX : anti-énumération
   }
 
-  // Toujours message générique côté client (anti-énumération)
+  // Toujours message générique côté client
   return { ok: true };
 }
