@@ -28,7 +28,7 @@ export async function signupAction(_prev: SignupState, formData: FormData): Prom
   const h = await headers();
 
   // ---- ORIGIN CHECK (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(h, "http://local");
+  const allowed = getAllowedOriginsFromHeaders(h);
   const requestOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(requestOrigin, allowed)) {
     return { error: "Requête invalide (origin)." };
