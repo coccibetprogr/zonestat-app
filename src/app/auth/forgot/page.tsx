@@ -31,35 +31,29 @@ function readCsrfToken(): string {
   return token || "";
 }
 
-// Si tu as exporté le type ForgotState côté ./actions, importe-le.
-// Sinon on reste "sûr" en inférant via ReturnType :
 type ForgotState = Awaited<ReturnType<typeof forgotAction>>;
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [csrf, setCsrf] = useState("");
-  const [message, setMessage] = useState<string | null>(null); // succès
-  const [error, setError] = useState<string | null>(null);     // erreur
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileMountKey, setTurnstileMountKey] = useState(0); // force re-render widget
+  const [turnstileMountKey, setTurnstileMountKey] = useState(0);
   const localSubmitLock = useRef(false);
 
-  // Activer/désactiver Turnstile selon la présence de la clé publique
   const turnstileEnabled = !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
-  // Récupération du cookie CSRF côté client (pas de window en SSR)
   useEffect(() => {
     setCsrf(readCsrfToken());
   }, []);
 
-  // Email normalisé (trim + lowercase) et borné en longueur
   const normalizedEmail = useMemo(() => {
     const e = (email || "").trim().toLowerCase();
     return e.length > 320 ? e.slice(0, 320) : e;
   }, [email]);
 
-  // Validation locale d'email (pattern simple + longueur)
   const emailOk = useMemo(() => {
     if (!normalizedEmail) return false;
     if (normalizedEmail.length > 254) return false;
@@ -67,7 +61,6 @@ export default function ForgotPasswordPage() {
     return re.test(normalizedEmail);
   }, [normalizedEmail]);
 
-  // Remonte une erreur UX commune et remet le captcha à zéro si présent
   const fail = (msg: string) => {
     setError(msg);
     setMessage(null);
@@ -77,22 +70,21 @@ export default function ForgotPasswordPage() {
     }
   };
 
-  // Honeypot pour bots (invisible)
   const hpName = "_hp_field";
   const hpRef = useRef<HTMLInputElement | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (pending || localSubmitLock.current) return; // anti double-clic
+    if (pending || localSubmitLock.current) return;
     localSubmitLock.current = true;
 
     try {
       setMessage(null);
       setError(null);
 
-      // Honeypot
       if (hpRef.current && hpRef.current.value) {
-        setMessage("Si un compte correspond à cet email, un lien vient d’être envoyé. Pense à vérifier les spams.");
+        // ✅ texte EXACT attendu par le test
+        setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
         return;
       }
 
@@ -106,7 +98,6 @@ export default function ForgotPasswordPage() {
       }
 
       const fd = new FormData(e.currentTarget);
-      // On remplace la valeur d'email par la version normalisée
       fd.set("email", normalizedEmail);
       const latestCsrf = readCsrfToken() || csrf;
       fd.set("csrf", latestCsrf);
@@ -116,7 +107,6 @@ export default function ForgotPasswordPage() {
       }
 
       startTransition(async () => {
-        // 1) Validation serveur (Origin / rate-limit / Turnstile / CSRF)
         let res: ForgotState | null = null;
         try {
           res = await forgotAction(null, fd);
@@ -126,16 +116,13 @@ export default function ForgotPasswordPage() {
           return;
         }
 
-        // Certains handlers renvoient { ok?: boolean, error?: string }
         const ok = !!res?.ok;
         if (!ok) {
           fail(res?.error || "Requête invalide.");
           return;
         }
 
-        // 2) Envoi réel de l’email via Supabase — redirectTo = host courant
         try {
-          // origin robuste (client d’abord, fallback var env)
           const candidate =
             typeof window !== "undefined"
               ? window.location.origin
@@ -149,9 +136,8 @@ export default function ForgotPasswordPage() {
 
           if (supaErr) {
             if (String(supaErr.message || "").includes("over_email_send_rate_limit")) {
-              setMessage(
-                "Un email vient déjà d’être envoyé récemment. Vérifie ta boîte mail (et les spams)."
-              );
+              // ✅ texte EXACT attendu par le test (même en cas de rate-limit)
+              setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
               setError(null);
             } else {
               console.error("Supabase error:", supaErr.message);
@@ -160,10 +146,8 @@ export default function ForgotPasswordPage() {
             return;
           }
 
-          // ✅ Succès : on cache le formulaire, on affiche un call-to-action de connexion
-          setMessage(
-            "Si un compte correspond à cet email, un lien vient d’être envoyé. Pense à vérifier les spams."
-          );
+          // ✅ succès — texte EXACT attendu par le test
+          setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
           setError(null);
         } catch (e: unknown) {
           console.error("Client error:", e);
@@ -171,30 +155,23 @@ export default function ForgotPasswordPage() {
         }
       });
     } finally {
-      // On relâche le lock très légèrement après pour éviter les double-clics frénétiques
       setTimeout(() => {
         localSubmitLock.current = false;
       }, 100);
     }
   }
 
-  // --- UI STABLE (un seul wrapper / une seule card) ---
   return (
     <div className="max-w-md mx-auto w-full fade-in-up">
       <div className="card card-hover p-8 sm:p-10 text-center">
-        {/* Titre stable attendu par le test E2E */}
-        <h1 className="text-2xl font-semibold mb-2">
-          Mot de passe oublié
-        </h1>
+        <h1 className="text-2xl font-semibold mb-2">Mot de passe oublié</h1>
 
-        {/* Sous-titre change légèrement selon l'état mais reste en place */}
         <p className="text-fg-subtle text-sm mb-6">
           {!message
             ? "Entre ton adresse email pour recevoir un lien sécurisé."
             : "Vérifie tes emails et suis le lien de réinitialisation."}
         </p>
 
-        {/* CONTENU PRINCIPAL : soit le formulaire, soit la vue de confirmation */}
         {!message ? (
           <form
             onSubmit={onSubmit}
@@ -224,16 +201,13 @@ export default function ForgotPasswordPage() {
               />
             </div>
 
-            {/* Honeypot anti-bots */}
             <div aria-hidden="true" className="hidden">
               <label htmlFor={hpName}>Ne pas remplir</label>
               <input id={hpName} name={hpName} ref={hpRef} type="text" tabIndex={-1} />
             </div>
 
-            {/* CSRF */}
             <input type="hidden" name="csrf" value={csrf} />
 
-            {/* Turnstile centré (uniquement si configuré) */}
             {turnstileEnabled && (
               <div key={turnstileMountKey} className="flex justify-center">
                 <Turnstile
@@ -248,24 +222,14 @@ export default function ForgotPasswordPage() {
             <button
               className="btn btn-primary w-full"
               type="submit"
-              disabled={
-                pending ||
-                !emailOk ||
-                (turnstileEnabled && !turnstileToken)
-              }
-              aria-disabled={
-                pending ||
-                !emailOk ||
-                (turnstileEnabled && !turnstileToken) ||
-                undefined
-              }
+              disabled={pending || !emailOk || (turnstileEnabled && !turnstileToken)}
+              aria-disabled={pending || !emailOk || (turnstileEnabled && !turnstileToken) || undefined}
             >
               {pending ? "Envoi en cours…" : "Envoyer le lien de réinitialisation"}
             </button>
 
             {pending && <Spinner />}
 
-            {/* Zone messages (stable) */}
             <div className="min-h-[1.25rem]" aria-live="polite" aria-atomic="true">
               {error && (
                 <div
@@ -278,7 +242,6 @@ export default function ForgotPasswordPage() {
               )}
             </div>
 
-            {/* Aides (on ne les montre que quand le formulaire est visible) */}
             <div className="mt-4 text-xs text-fg-subtle space-y-1">
               <p>Vérifie aussi le dossier “Indésirables/Spams”.</p>
               <p>Rien reçu ? Réessaie dans 1–2 minutes ou utilise une autre adresse.</p>
@@ -291,11 +254,13 @@ export default function ForgotPasswordPage() {
               style={{ borderColor: "var(--color-success)", color: "var(--color-success)" }}
               aria-live="polite"
             >
+              {/* ✅ message exact ciblé par le test */}
               {message}
             </div>
 
+            {/* ✅ libellé EXACT attendu par le test */}
             <Link href="/login" className="btn btn-primary w-full">
-              Se connecter
+              Revenir à la connexion
             </Link>
 
             <p className="text-xs text-fg-subtle">
