@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+  "dev": "NEXT_DISABLE_TURBOPACK=1 next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -11,6 +11,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
+    "e2e:dev": "RL_FORCE_MEM=1 concurrently -k -s first -n app,tests \"pnpm dev\" \"wait-on http://localhost:3000 && pnpm test:e2e\"",
     "format": "prettier --write .",
     "ci": "pnpm -s test:unit && pnpm -s test:e2e"
   },
@@ -34,6 +35,7 @@
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",
     "autoprefixer": "10.4.21",
+    "concurrently": "^9.2.1",
     "eslint": "9.15.0",
     "eslint-config-next": "16.0.1",
     "playwright": "1.48.2",
@@ -41,7 +43,8 @@
     "prettier": "3.3.3",
     "tailwindcss": "4.1.16",
     "typescript": "5.6.3",
-    "vitest": "1.6.0"
+    "vitest": "1.6.0",
+    "wait-on": "^9.0.3"
   },
   "engines": {
     "node": ">=20"

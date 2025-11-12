@@ -1,12 +1,9 @@
 // next.config.ts
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
-if (process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_SITE_URL) {
-  throw new Error("NEXT_PUBLIC_SITE_URL must be set in production for CSRF checks.");
-}
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
+const config: NextConfig = {
+  // ❌ NE PAS METTRE: output: 'export'
+  // Laisse vide, ou garde tes autres options (reactStrictMode, images, etc.)
 };
 
-export default nextConfig;
+export default config;

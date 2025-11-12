@@ -1,4 +1,4 @@
-// src/app/signup/actions.ts
+// === FILE: src/app/signup/actions.ts ===
 "use server";
 
 import { redirect } from "next/navigation";
@@ -9,7 +9,11 @@ import { rateLimit } from "@/utils/rateLimit";
 import { safeNext } from "@/utils/safeNext";
 import { log } from "@/utils/observability/log";
 import crypto from "crypto";
-import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import {
+  isAllowedOrigin,
+  getAllowedOriginsFromHeaders,
+  isOriginAllowed,
+} from "@/utils/security/origin";
 
 export type SignupState = { error?: string; success?: string };
 
@@ -26,11 +30,14 @@ function rlKey(...parts: string[]) {
 
 export async function signupAction(_prev: SignupState, formData: FormData): Promise<SignupState> {
   const h = await headers();
+  const ip = h.get("x-zonestat-ip") ?? "unknown";
 
   // ---- ORIGIN CHECK (helper centralisé) ----
+  const headerAllowed = isAllowedOrigin(h);
   const allowed = getAllowedOriginsFromHeaders(h);
   const requestOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(requestOrigin, allowed)) {
+    log.warn("auth.signup.invalid_origin", { headerAllowed, requestOrigin });
     return { error: "Requête invalide (origin)." };
   }
 
@@ -58,8 +65,7 @@ export async function signupAction(_prev: SignupState, formData: FormData): Prom
     return { error: "Mot de passe trop court (minimum 6 caractères)." };
   }
 
-  // ---- RATE LIMIT ----
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  // ---- RATE LIMIT (IP fiabilisée) ----
   let rlIpKey: string;
   let rlAcctKey: string;
   try {

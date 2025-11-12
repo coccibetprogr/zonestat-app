@@ -1,11 +1,15 @@
-// src/app/auth/forgot/actions.ts
+// === FILE: src/app/auth/forgot/actions.ts ===
 "use server";
 
 import { headers, cookies } from "next/headers";
 import { actionClient } from "@/utils/supabase/action";
 import { rateLimit } from "@/utils/rateLimit";
 import { verifyTurnstile } from "@/lib/turnstile";
-import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import {
+  isAllowedOrigin,
+  getAllowedOriginsFromHeaders,
+  isOriginAllowed,
+} from "@/utils/security/origin";
 import { log } from "@/utils/observability/log";
 import crypto from "node:crypto";
 import { z } from "zod";
@@ -54,15 +58,18 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
   if (!parsed.success) return { ok: false, error: "Données invalides." };
 
   const h = await headers();
+  const ip = h.get("x-zonestat-ip") ?? "unknown";
 
   // ---- ORIGIN CHECK (helper centralisé) ----
+  const headerAllowed = isAllowedOrigin(h);
   const allowed = getAllowedOriginsFromHeaders(h);
   const reqOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(reqOrigin, allowed)) {
+    log.warn("auth.forgot.invalid_origin", { headerAllowed, reqOrigin });
     return { ok: false, error: "Requête invalide (Origin)." };
   }
 
-  // ---- CSRF (double-submit): cookies() fiable en Server Action ----
+  // ---- CSRF (double-submit) ----
   const jar = await cookies();
   const csrfCookieRaw = jar.get("csrf")?.value || "";
   const cookieToken = tokenOnly(csrfCookieRaw);
@@ -77,11 +84,7 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
     return { ok: false, error: "Requête invalide (CSRF)." };
   }
 
-  // ---- Rate limit (HMAC, pas de PII en clair) ----
-  const ip =
-    h.get("x-real-ip") ||
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "127.0.0.1";
+  // ---- Rate limit (IP fiabilisée + HMAC) ----
   let ipKey: string, acctKey: string;
   try {
     ipKey = rlKey("forgot:ip", ip);
@@ -95,7 +98,7 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
   const rlAcct = await rateLimit(acctKey);
   if (!rlAcct.ok) return { ok: false, error: "Trop de tentatives, réessaie plus tard." };
 
-  // ---- Turnstile (⚠️ prod seulement, comme la page) ----
+  // ---- Turnstile (prod si configuré) ----
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
   const secret =
     process.env.TURNSTILE_SECRET_KEY?.trim() ||
@@ -114,7 +117,7 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
     }
   }
 
-  // === ENVOI RÉEL DE L’EMAIL CÔTÉ SERVEUR ===
+  // === Envoi email côté serveur ===
   try {
     const computedOrigin =
       (reqOrigin && (() => { try { return new URL(String(reqOrigin)).origin; } catch { return null; } })()) ||
@@ -122,7 +125,7 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
       "http://localhost:3000";
     const originSafe = new URL(computedOrigin).origin.replace(/\/+$/, "");
 
-    const supabase = await actionClient(); // anon client côté serveur (cookies mutables)
+    const supabase = await actionClient();
     const { error: supaErr } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${originSafe}/auth/update-password`,
     });
@@ -139,9 +142,8 @@ export async function forgotAction(_prev: unknown, formData: FormData): Promise<
     log.error("auth.forgot.server_send_error", {
       error: err?.message || String(err),
     });
-    // on ne casse pas l’UX : anti-énumération
+    // on ne divulgue rien côté client (anti-énumération)
   }
 
-  // Toujours message générique côté client
   return { ok: true };
 }

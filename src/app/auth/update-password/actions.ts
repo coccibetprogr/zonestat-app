@@ -1,8 +1,12 @@
-// src/app/auth/update-password/actions.ts
+// === FILE: src/app/auth/update-password/actions.ts ===
 "use server";
 
 import { headers, cookies } from "next/headers";
-import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import {
+  isAllowedOrigin,
+  getAllowedOriginsFromHeaders,
+  isOriginAllowed,
+} from "@/utils/security/origin";
 import { rateLimit } from "@/utils/rateLimit";
 import { log } from "@/utils/observability/log";
 import crypto from "node:crypto";
@@ -26,12 +30,15 @@ export async function updatePasswordGate(
   formData: FormData
 ): Promise<UpdatePwGateState> {
   const h = await headers();
+  const ip = h.get("x-zonestat-ip") ?? "unknown";
   const jar = await cookies();
 
-  // ---- ORIGIN CHECK (helper centralisé) ----
+  // ---- ORIGIN CHECK ----
+  const headerAllowed = isAllowedOrigin(h);
   const allowed = getAllowedOriginsFromHeaders(h);
   const requestOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(requestOrigin, allowed)) {
+    log.warn("auth.updatepw.invalid_origin", { headerAllowed, requestOrigin });
     return { error: "Requête invalide (origin)." };
   }
 
@@ -46,12 +53,7 @@ export async function updatePasswordGate(
     return { error: "Requête invalide (csrf)." };
   }
 
-  // ---- RATE LIMIT (HMAC; IP + compte/email si présent) ----
-  const ip =
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    h.get("x-real-ip") ||
-    "unknown";
-
+  // ---- RATE LIMIT (IP fiabilisée + HMAC) ----
   let keyIp: string, keyAcct: string;
   try {
     const email = (formData.get("email") || "").toString().toLowerCase();
@@ -69,7 +71,7 @@ export async function updatePasswordGate(
     return { error: "Trop de tentatives. Réessaie plus tard." };
   }
 
-  // ---- Turnstile requis uniquement si secret + sitekey présents ----
+  // ---- Turnstile si configuré ----
   const secret =
     process.env.TURNSTILE_SECRET_KEY ||
     process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ||

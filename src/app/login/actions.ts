@@ -1,4 +1,4 @@
-// src/app/login/actions.ts
+// === FILE: src/app/login/actions.ts ===
 "use server";
 
 import { redirect } from "next/navigation";
@@ -9,7 +9,11 @@ import { rateLimit } from "@/utils/rateLimit";
 import { safeNext } from "@/utils/safeNext";
 import { log } from "@/utils/observability/log";
 import crypto from "crypto";
-import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import {
+  isAllowedOrigin,
+  getAllowedOriginsFromHeaders,
+  isOriginAllowed,
+} from "@/utils/security/origin";
 
 export type LoginState = { error?: string };
 
@@ -25,19 +29,24 @@ function rlKey(...parts: string[]) {
 }
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  // ⚠️ Dans ton setup, headers()/cookies() sont typées async → on les attend.
   const h = await headers();
+  const ip = h.get("x-zonestat-ip") ?? "unknown";
+  const cookieStore = await cookies();
 
   // ---- ORIGIN CHECK (helper centralisé) ----
+  const headerAllowed = isAllowedOrigin(h);
   const allowed = getAllowedOriginsFromHeaders(h);
   const requestOrigin = h.get("origin") || h.get("referer");
   if (!isOriginAllowed(requestOrigin, allowed)) {
+    log.warn("auth.login.invalid_origin", { headerAllowed, requestOrigin });
     return { error: "Requête invalide (origin)." };
   }
 
   // ---- CSRF (double-submit) ----
   const csrfBodyRaw = formData.get("csrf")?.toString().trim() || "";
   const csrfBodyToken = csrfBodyRaw.split(":")[0] || csrfBodyRaw;
-  const csrfCookieRaw = (await cookies()).get("csrf")?.value || "";
+  const csrfCookieRaw = cookieStore.get("csrf")?.value || "";
   const csrfCookieToken = csrfCookieRaw.split(":")[0] || csrfCookieRaw;
   if (!csrfBodyToken || !csrfCookieToken || csrfBodyToken !== csrfCookieToken) {
     log.warn("auth.login.csrf_mismatch", {
@@ -54,7 +63,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const captcha = formData.get("cf-turnstile-response")?.toString();
 
   // ---- RATE LIMIT ----
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  // IP fiabilisée par le middleware (ne jamais lire x-forwarded-*)
   let rlIpKey: string;
   let rlAcctKey: string;
   try {

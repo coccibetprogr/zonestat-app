@@ -1,71 +1,80 @@
-// src/utils/security/origin.ts
-// Helper centralisé pour valider l’Origin en environnement proxy (Vercel/Cloudflare) sans se faire spoof.
+const RAW_SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/+$/, "");
+const ALLOWED_HOSTS = (process.env.ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 
-const TRUSTED_HINT_HEADERS = ["x-vercel-id", "cf-ray", "x-forwarded-proto"];
-
-function norm(origin: string | null | undefined): string | null {
-  if (!origin) return null;
+function normalizeOrigin(input: string): string {
   try {
-    const u = new URL(origin);
-    return `${u.protocol}//${u.host}`;
+    const u = new URL(input);
+    return u.origin.toLowerCase();
   } catch {
-    return null;
+    return "";
   }
 }
-
-function fromHost(host: string | null | undefined, protoHint?: string | null): string | null {
-  if (!host) return null;
-  const h = host.trim();
-  if (!h) return null;
-  if (protoHint) return `${protoHint}://${h}`;
-  const hostname = h.split(":")[0]?.toLowerCase() || "";
-  const isLocal =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname.startsWith("192.168.") ||
-    hostname.startsWith("10.");
-  return `${isLocal ? "http" : "https"}://${h}`;
+function expectedOrigin(): string {
+  if (!RAW_SITE_URL) return "";
+  return normalizeOrigin(RAW_SITE_URL);
 }
-
-function trustedProxyPresent(h: Headers): boolean {
-  if (process.env.TRUST_PROXY !== "true") return false;
-  for (const name of TRUSTED_HINT_HEADERS) {
-    if (h.get(name)) return true;
+function getHost(headers: Headers): string {
+  return (headers.get("host") ?? "").toLowerCase();
+}
+function buildOriginFromHost(host: string): string {
+  if (!host) return "";
+  const scheme = process.env.NODE_ENV === "production" ? "https" : "http";
+  return `${scheme}://${host}`;
+}
+export function getRequestOrigin(headers: Headers): string {
+  const hdrOrigin = headers.get("origin");
+  if (hdrOrigin) {
+    const o = normalizeOrigin(hdrOrigin);
+    if (o) return o;
   }
+  return normalizeOrigin(buildOriginFromHost(getHost(headers)));
+}
+export function isAllowedOrigin(headers: Headers): boolean {
+  const reqOrigin = getRequestOrigin(headers);
+  const exp = expectedOrigin();
+  if (reqOrigin && exp && reqOrigin === exp) return true;
+  const host = getHost(headers);
+  if (host && ALLOWED_HOSTS.includes(host)) return true;
   return false;
 }
-
-// ⚠️ Nouvelle signature : plus besoin de reqUrl
-export function getAllowedOriginsFromHeaders(h: Headers): Set<string> {
-  const set = new Set<string>();
-
-  // 1) NEXT_PUBLIC_SITE_URL prioritaire
-  const site = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  const siteOrigin = site ? norm(site) : null;
-  if (siteOrigin) set.add(siteOrigin);
-
-  // 2) Host de la requête (avec x-forwarded-proto quand présent)
-  const proto = h.get("x-forwarded-proto") || null;
-  const host = h.get("host");
-  const fromHostDirect = fromHost(host, proto);
-  if (fromHostDirect) set.add(fromHostDirect);
-
-  // 3) x-forwarded-host si proxy de confiance
-  if (trustedProxyPresent(h)) {
-    const xfh = h.get("x-forwarded-host");
-    const fromXFH = fromHost(xfh, proto);
-    if (fromXFH) set.add(fromXFH);
-  }
-
-  return set;
+export function forbidOrigin(): Response {
+  return new Response("Forbidden origin", { status: 403 });
 }
-
-export function isOriginAllowed(originHeader: string | null, allowed: Set<string>): boolean {
-  const o = norm(originHeader || "");
-  if (!o) return false;
-  for (const cand of allowed) {
-    const n = norm(cand);
-    if (n === o) return true;
+export type AllowedOrigins = { origins: string[]; hosts: string[] };
+export function getAllowedOriginsFromHeaders(headers: Headers): AllowedOrigins {
+  const origins = new Set<string>();
+  const hosts = new Set<string>();
+  const reqOrigin = getRequestOrigin(headers);
+  if (reqOrigin) origins.add(reqOrigin);
+  const exp = expectedOrigin();
+  if (exp) origins.add(exp);
+  const headerHost = getHost(headers);
+  if (headerHost) {
+    hosts.add(headerHost);
+    const derived = normalizeOrigin(buildOriginFromHost(headerHost));
+    if (derived) origins.add(derived);
   }
+  for (const host of ALLOWED_HOSTS) {
+    hosts.add(host);
+    const fromHost = normalizeOrigin(buildOriginFromHost(host));
+    if (fromHost) origins.add(fromHost);
+  }
+  return { origins: [...origins], hosts: [...hosts] };
+}
+export function isOriginAllowed(
+  rawOrigin: string | null | undefined,
+  allowed: AllowedOrigins
+): boolean {
+  if (!rawOrigin) return false;
+  const normalized = normalizeOrigin(rawOrigin);
+  if (!normalized) return false;
+  if (allowed.origins.includes(normalized)) return true;
+  try {
+    const host = new URL(normalized).host;
+    if (host && allowed.hosts.includes(host)) return true;
+  } catch {}
   return false;
 }

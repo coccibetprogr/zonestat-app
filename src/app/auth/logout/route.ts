@@ -1,13 +1,22 @@
-// src/app/auth/logout/route.ts
+// === FILE: src/app/auth/logout/route.ts ===
 import { NextResponse } from "next/server";
 import { actionClient } from "@/utils/supabase/action";
 import { cookies } from "next/headers";
-import { getAllowedOriginsFromHeaders, isOriginAllowed } from "@/utils/security/origin";
+import {
+  isAllowedOrigin,
+  getAllowedOriginsFromHeaders,
+  isOriginAllowed,
+} from "@/utils/security/origin";
+import { log } from "@/utils/observability/log";
 
 export async function POST(req: Request) {
-  // ---- Origin check (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(req.headers);
-  if (!isOriginAllowed(req.headers.get("origin"), allowed)) {
+  // ---- Origin check ----
+  const requestHeaders = req.headers as Headers;
+  const headerAllowed = isAllowedOrigin(requestHeaders);
+  const allowed = getAllowedOriginsFromHeaders(requestHeaders);
+  const origin = req.headers.get("origin");
+  if (!isOriginAllowed(origin, allowed)) {
+    log.warn("auth.logout.invalid_origin", { headerAllowed, origin });
     return new NextResponse("Invalid origin", { status: 403 });
   }
 
