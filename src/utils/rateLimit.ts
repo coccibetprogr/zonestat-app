@@ -53,14 +53,72 @@ export type RateLimitResult = {
   reason?: string;
 };
 
+// 🔹 Fallback mémoire quand Upstash n'est pas configuré
+type MemoryEntry = {
+  count: number;
+  resetAt: number;
+};
+
+const memoryStore = new Map<string, MemoryEntry>();
+
+function parseWindowToMs(window: `${number} ${"s" | "m" | "h"}`): number {
+  const [valueStr, unit] = window.split(" ") as [string, "s" | "m" | "h"];
+  const value = Number(valueStr);
+  if (!Number.isFinite(value) || value <= 0) return 30_000;
+
+  switch (unit) {
+    case "s":
+      return value * 1_000;
+    case "m":
+      return value * 60_000;
+    case "h":
+      return value * 3_600_000;
+    default:
+      return 30_000;
+  }
+}
+
 export async function rateLimit(
   key: string,
   opts?: { limit?: number; window?: `${number} ${"s" | "m" | "h"}` }
 ): Promise<RateLimitResult> {
+  // -------------------------
+  // Fallback mémoire si Upstash n'est pas configuré
+  // -------------------------
   if (!hasUpstash) {
-    return { ok: true, reason: "upstash_not_configured" };
+    const limit = opts?.limit ?? 5;
+    const windowStr = opts?.window ?? "30 s";
+    const windowMs = parseWindowToMs(windowStr);
+
+    const now = Date.now();
+    const existing = memoryStore.get(key);
+
+    let entry: MemoryEntry;
+    if (!existing || existing.resetAt <= now) {
+      entry = { count: 0, resetAt: now + windowMs };
+    } else {
+      entry = existing;
+    }
+
+    // On incrémente AVANT de tester, comme un vrai compteur de requêtes
+    entry.count += 1;
+    memoryStore.set(key, entry);
+
+    const ok = entry.count <= limit;
+    const remaining = ok ? limit - entry.count : 0;
+
+    return {
+      ok,
+      limit,
+      remaining,
+      reset: entry.resetAt,
+      reason: "memory_fallback",
+    };
   }
 
+  // -------------------------
+  // Chemin normal Upstash
+  // -------------------------
   const { limiter } = getLimiter();
   if (!limiter) {
     return { ok: true, reason: "limiter_not_initialized" };
