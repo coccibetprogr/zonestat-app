@@ -7,6 +7,9 @@ if (process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_SITE_URL) 
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    isolatedDevBuild: false,
+  },
 };
 
 export default nextConfig;
