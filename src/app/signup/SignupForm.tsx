@@ -46,9 +46,14 @@ export default function SignupForm({
 }) {
   const [state, formAction] = useActionState(action, {} as State);
   const [csrfLocal, setCsrfLocal] = useState<string>(csrf || "");
+
+  // --- Turnstile (widget natif) ---
   const captchaRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const [tsToken, setTsToken] = useState<string>(""); // token courant
+  const turnstileEnabled = !!turnstileSiteKey;
 
+  // Bootstrap CSRF + sync sur focus (comme LoginForm)
   useEffect(() => {
     let mounted = true;
 
@@ -84,8 +89,9 @@ export default function SignupForm({
 
   const csrfValue = useMemo(() => csrfLocal || "", [csrfLocal]);
 
+  // Montage Turnstile + gestion du token
   useEffect(() => {
-    if (!turnstileSiteKey) return;
+    if (!turnstileEnabled) return;
     const el = captchaRef.current;
     if (!el) return;
 
@@ -96,8 +102,19 @@ export default function SignupForm({
         widgetIdRef.current = ts.render(el, {
           sitekey: turnstileSiteKey,
           theme: "light",
+          callback: (token: string) => {
+            setTsToken(token);
+          },
+          "expired-callback": () => {
+            setTsToken("");
+          },
+          "error-callback": () => {
+            setTsToken("");
+          },
         });
-      } catch {}
+      } catch {
+        // on réessaie via l’interval
+      }
     }
 
     renderIfReady();
@@ -111,21 +128,55 @@ export default function SignupForm({
       const ts: any = (window as any).turnstile;
       if (ts && widgetIdRef.current) ts.remove(widgetIdRef.current);
       widgetIdRef.current = null;
+      setTsToken("");
     };
-  }, [turnstileSiteKey]);
+  }, [turnstileEnabled, turnstileSiteKey]);
 
   return (
     <form
-      action={formAction}
+      action={async (fd: FormData) => {
+        // -- Sync CSRF depuis cookie juste avant l’envoi --
+        const latest = readCookie("csrf");
+        const token = extractToken(latest);
+        const toSend = token || csrfValue;
+        if (token) setCsrfLocal((prev) => (token !== prev ? token : prev));
+        fd.set("csrf", toSend);
+
+        // -- Normalisation email --
+        const email = String(fd.get("email") || "").trim().toLowerCase();
+        fd.set("email", email);
+
+        // -- Injecte le token Turnstile si activé --
+        if (turnstileEnabled) {
+          if (!tsToken) {
+            // cohérent mais vide si l’utilisateur n’a pas validé
+            fd.set("cf-turnstile-response", "");
+          } else {
+            fd.set("cf-turnstile-response", tsToken);
+          }
+        }
+
+        // Envoie au server action
+        await formAction(fd);
+      }}
       className="space-y-5 text-sm fade-in-up"
-      onSubmit={() => {
+      onSubmit={(e) => {
+        // Hard-block côté client si captcha requis mais manquant
+        if (turnstileEnabled && !tsToken) {
+          e.preventDefault();
+          return;
+        }
         const latest = readCookie("csrf");
         const token = extractToken(latest);
         if (token) setCsrfLocal((prev) => (token !== prev ? token : prev));
       }}
+      aria-describedby={state?.error ? "signup-error" : undefined}
     >
       <input type="hidden" name="next" value={next} />
       <input type="hidden" name="csrf" value={csrfValue} />
+      {turnstileEnabled && (
+        <input type="hidden" name="cf-turnstile-response" value={tsToken} readOnly />
+      )}
 
       <div className="space-y-3">
         <input
@@ -159,7 +210,11 @@ export default function SignupForm({
 
       <div className="min-h-[1.25rem]" aria-live="polite">
         {state?.error && (
-          <p className="text-[13px]" style={{ color: "var(--color-danger)" }}>
+          <p
+            id="signup-error"
+            className="text-[13px]"
+            style={{ color: "var(--color-danger)" }}
+          >
             {state.error}
           </p>
         )}
