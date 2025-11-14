@@ -20,11 +20,21 @@ declare global {
     | undefined;
 }
 
-const hasUpstash =
-  Boolean(process.env.UPSTASH_REDIS_REST_URL) &&
-  Boolean(process.env.UPSTASH_REDIS_REST_TOKEN);
+const isTestEnv = process.env.NODE_ENV === "test";
+
+function hasUpstashConfigured(): boolean {
+  // En tests (vitest, CI), on force le fallback mémoire,
+  // même si les variables d'env Upstash sont présentes.
+  if (isTestEnv) return false;
+
+  return (
+    Boolean(process.env.UPSTASH_REDIS_REST_URL) &&
+    Boolean(process.env.UPSTASH_REDIS_REST_TOKEN)
+  );
+}
 
 function getLimiter() {
+  const hasUpstash = hasUpstashConfigured();
   if (!hasUpstash) return { redis: null, limiter: null } as const;
 
   if (!global.__zonestat_rl__) {
@@ -42,6 +52,7 @@ function getLimiter() {
 
     global.__zonestat_rl__ = { redis, limiter };
   }
+
   return global.__zonestat_rl__!;
 }
 
@@ -53,7 +64,7 @@ export type RateLimitResult = {
   reason?: string;
 };
 
-// 🔹 Fallback mémoire quand Upstash n'est pas configuré
+// 🔹 Fallback mémoire quand Upstash n'est pas utilisé
 type MemoryEntry = {
   count: number;
   resetAt: number;
@@ -83,9 +94,10 @@ export async function rateLimit(
   opts?: { limit?: number; window?: `${number} ${"s" | "m" | "h"}` }
 ): Promise<RateLimitResult> {
   // -------------------------
-  // Fallback mémoire si Upstash n'est pas configuré
+  // Fallback mémoire si Upstash n'est pas utilisé
+  // (non configuré OU NODE_ENV === "test")
   // -------------------------
-  if (!hasUpstash) {
+  if (!hasUpstashConfigured()) {
     const limit = opts?.limit ?? 5;
     const windowStr = opts?.window ?? "30 s";
     const windowMs = parseWindowToMs(windowStr);
@@ -117,7 +129,7 @@ export async function rateLimit(
   }
 
   // -------------------------
-  // Chemin normal Upstash
+  // Chemin normal Upstash (dev/prod uniquement)
   // -------------------------
   const { limiter } = getLimiter();
   if (!limiter) {
