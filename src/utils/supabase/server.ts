@@ -12,6 +12,16 @@ import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
+type CookieOptions = {
+  domain?: string;
+  expires?: Date;
+  httpOnly?: boolean;
+  maxAge?: number;
+  path?: string;
+  sameSite?: "strict" | "lax" | "none";
+  secure?: boolean;
+};
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
@@ -31,16 +41,16 @@ export async function serverClient(): Promise<SupabaseClient> {
       get(name: string) {
         return cookieStore.get(name)?.value;
       },
-      set(name: string, value: string, options: any) {
+      set(name: string, value: string, options?: CookieOptions) {
         try {
-          cookieStore.set({ name, value, ...options });
+          cookieStore.set({ name, value, ...(options ?? {}) });
         } catch {
           // Certaines exécutions RSC interdisent l’écriture — on ignore.
         }
       },
-      remove(name: string, options: any) {
+      remove(name: string, options?: CookieOptions) {
         try {
-          cookieStore.set({ name, value: "", ...options });
+          cookieStore.set({ name, value: "", ...(options ?? {}) });
         } catch {
           // idem
         }

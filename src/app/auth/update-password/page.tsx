@@ -162,8 +162,9 @@ export default function UpdatePasswordPage() {
       setErrorKind("expired");
       setReady(false);
       return false;
-    } catch (e: any) {
-      console.error("[update-password] tryAll error:", e?.message || e);
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error("[update-password] tryAll error:", errorMessage);
       setErrorKind("generic");
       setReady(false);
       return false;

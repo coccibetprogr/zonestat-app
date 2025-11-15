@@ -57,8 +57,9 @@ export async function updatePasswordGate(
     const email = (formData.get("email") || "").toString().toLowerCase();
     keyIp = rlKey("updatepw:ip", ip);
     keyAcct = rlKey("updatepw:acct", email || ip);
-  } catch (e: any) {
-    log.error("auth.updatepw.rlkey_error", { error: e?.message || String(e) });
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    log.error("auth.updatepw.rlkey_error", { error: errorMessage });
     return { error: "Service temporairement indisponible." };
   }
 

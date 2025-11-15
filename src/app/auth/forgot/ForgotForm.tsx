@@ -4,6 +4,21 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { ForgotState } from "./actions";
 
+type TurnstileRenderOptions = {
+  sitekey: string;
+  theme?: string;
+  callback?: (token: string) => void;
+  "expired-callback"?: () => void;
+  "error-callback"?: () => void;
+};
+
+type TurnstileGlobal = {
+  render: (element: HTMLElement, options: TurnstileRenderOptions) => string;
+  remove: (widgetId: string) => void;
+};
+
+type TurnstileWindow = Window & { turnstile?: TurnstileGlobal };
+
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
@@ -86,7 +101,7 @@ export default function ForgotForm({
     if (!el) return;
 
     function renderIfReady() {
-      const ts: any = (window as any).turnstile;
+      const ts = (window as TurnstileWindow).turnstile;
       if (!ts || widgetIdRef.current) return;
       try {
         widgetIdRef.current = ts.render(el, {
@@ -104,7 +119,7 @@ export default function ForgotForm({
 
     return () => {
       clearInterval(i);
-      const ts: any = (window as any).turnstile;
+      const ts = (window as TurnstileWindow).turnstile;
       if (ts && widgetIdRef.current) ts.remove(widgetIdRef.current);
       widgetIdRef.current = null;
     };

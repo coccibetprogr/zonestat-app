@@ -79,8 +79,9 @@ export async function verifyTurnstile(
     }
 
     return true;
-  } catch (e: any) {
-    log.error("turnstile.exception", { error: e?.message || String(e) });
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    log.error("turnstile.exception", { error: errorMessage });
     return false;
   }
 }

@@ -2,6 +2,16 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+type CookieOptions = {
+  domain?: string;
+  expires?: Date;
+  httpOnly?: boolean;
+  maxAge?: number;
+  path?: string;
+  sameSite?: "strict" | "lax" | "none";
+  secure?: boolean;
+};
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 if (process.env.NODE_ENV === "production") {
@@ -22,11 +32,11 @@ export async function actionClient() {
       get(name: string) {
         return cookieStore.get(name)?.value;
       },
-      set(name: string, value: string, options?: any) {
-        cookieStore.set({ name, value, ...options });
+      set(name: string, value: string, options?: CookieOptions) {
+        cookieStore.set({ name, value, ...(options ?? {}) });
       },
-      remove(name: string, options?: any) {
-        cookieStore.delete({ name, ...(options ?? {}) } as any);
+      remove(name: string, options?: CookieOptions) {
+        cookieStore.delete({ name, ...(options ?? {}) });
       },
     },
     // ✅ Empêche Supabase d'utiliser PKCE pour les liens email

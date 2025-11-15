@@ -65,8 +65,9 @@ export async function signupAction(_prev: SignupState, formData: FormData): Prom
   try {
     rlIpKey = rlKey("signup:ip", ip);
     rlAcctKey = rlKey("signup:acct", email.toLowerCase(), ip);
-  } catch (e: any) {
-    log.error("auth.signup.rlkey_error", { error: e?.message || String(e) });
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    log.error("auth.signup.rlkey_error", { error: errorMessage });
     return { error: "Erreur serveur (config). Contacte l’administrateur." };
   }
 

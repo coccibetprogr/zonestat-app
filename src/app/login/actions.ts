@@ -60,8 +60,9 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   try {
     rlIpKey = rlKey("login:ip", ip);
     rlAcctKey = rlKey("login:acct", email.toLowerCase(), ip);
-  } catch (e: any) {
-    log.error("auth.login.rlkey_error", { error: e?.message || String(e) });
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    log.error("auth.login.rlkey_error", { error: errorMessage });
     return { error: "Erreur serveur (config). Contacte l’administrateur." };
   }
 
