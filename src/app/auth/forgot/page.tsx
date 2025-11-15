@@ -4,7 +4,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { forgotAction } from "./actions";
+import { forgotAction, type ForgotState } from "./actions";
 import Turnstile from "react-turnstile";
 import Link from "next/link";
 
@@ -104,7 +104,8 @@ export default function ForgotPasswordPage() {
       startTransition(async () => {
         try {
           // ✅ l’envoi de l’email est désormais fait côté serveur dans forgotAction
-          await forgotAction(null, fd);
+          const initialState: ForgotState = {} as ForgotState;
+          await forgotAction(initialState, fd);
         } catch {
           // Anti-énumération : message générique quoi qu’il arrive
           setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
@@ -188,7 +189,9 @@ export default function ForgotPasswordPage() {
               className="btn btn-primary w-full"
               type="submit"
               disabled={pending || !emailOk || (turnstileEnabled && !turnstileToken)}
-              aria-disabled={pending || !emailOk || (turnstileEnabled && !turnstileToken) || undefined}
+              aria-disabled={
+                pending || !emailOk || (turnstileEnabled && !turnstileToken) || undefined
+              }
             >
               {pending ? "Envoi en cours…" : "Envoyer le lien de réinitialisation"}
             </button>
