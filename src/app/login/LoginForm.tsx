@@ -105,13 +105,13 @@ export default function LoginForm({
 
   useEffect(() => {
     if (!turnstileEnabled) return;
-    const el = captchaRef.current;
-    if (!el) return;
 
     // On (re)rend le widget jusqu’à ce que window.turnstile soit prêt
     function renderIfReady() {
       const ts = (window as TurnstileWindow).turnstile;
-      if (!ts || widgetIdRef.current) return;
+      const el = captchaRef.current;
+      if (!ts || !el || widgetIdRef.current) return;
+
       try {
         widgetIdRef.current = ts.render(el, {
           sitekey: turnstileSiteKey,
@@ -133,8 +133,11 @@ export default function LoginForm({
 
     renderIfReady();
     const i = setInterval(() => {
-      if (widgetIdRef.current) clearInterval(i);
-      else renderIfReady();
+      if (widgetIdRef.current) {
+        clearInterval(i);
+      } else {
+        renderIfReady();
+      }
     }, 150);
 
     return () => {
@@ -163,8 +166,6 @@ export default function LoginForm({
         // -- Injecte le token Turnstile si activé --
         if (turnstileEnabled) {
           if (!tsToken) {
-            // On simule une erreur côté client : l’action retournera {error} si voulue, mais on peut aussi l’afficher ici.
-            // On met quand même une valeur vide pour cohérence
             fd.set("cf-turnstile-response", "");
           } else {
             fd.set("cf-turnstile-response", tsToken);
@@ -179,8 +180,6 @@ export default function LoginForm({
         // (optionnel) hard-block si captcha requis mais manquant
         if (turnstileEnabled && !tsToken) {
           e.preventDefault();
-          // Option UX : on peut mettre un message d’erreur local ici si besoin
-          // mais on conserve ta logique d'erreur côté action pour uniformité.
           return;
         }
         const latest = readCookie("csrf");

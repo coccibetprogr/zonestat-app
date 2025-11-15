@@ -97,24 +97,29 @@ export default function ForgotForm({
 
   useEffect(() => {
     if (!turnstileSiteKey) return;
-    const el = captchaRef.current;
-    if (!el) return;
 
     function renderIfReady() {
       const ts = (window as TurnstileWindow).turnstile;
-      if (!ts || widgetIdRef.current) return;
+      const el = captchaRef.current;
+      if (!ts || !el || widgetIdRef.current) return;
+
       try {
         widgetIdRef.current = ts.render(el, {
           sitekey: turnstileSiteKey,
           theme: "light",
         });
-      } catch {}
+      } catch {
+        // noop
+      }
     }
 
     renderIfReady();
     const i = setInterval(() => {
-      if (widgetIdRef.current) clearInterval(i);
-      else renderIfReady();
+      if (widgetIdRef.current) {
+        clearInterval(i);
+      } else {
+        renderIfReady();
+      }
     }, 150);
 
     return () => {
