@@ -2,7 +2,7 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Mot de passe oublié", () => {
-  test("envoie un lien de réinitialisation avec message générique", async ({ page, context, baseURL }) => {
+  test("envoie un lien de réinitialisation avec message générique", async ({ page }) => {
     // 1) Aller sur la page "mot de passe oublié"
     await page.goto("/auth/forgot");
 

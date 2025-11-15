@@ -33,7 +33,6 @@ function emit(level: Lvl, message: string, meta?: LogMeta) {
   // sortie console JSON
   const consoleMethod: "log" | "info" | "warn" | "error" =
     level === "debug" ? "log" : level;
-  // eslint-disable-next-line no-console
   console[consoleMethod](JSON.stringify(rec));
   // expédition optionnelle
   void sendWebhook(rec);

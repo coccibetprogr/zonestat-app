@@ -27,8 +27,6 @@ function readCsrfToken(): string {
   return token || "";
 }
 
-type ForgotState = Awaited<ReturnType<typeof forgotAction>>;
-
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [csrf, setCsrf] = useState("");
@@ -104,11 +102,10 @@ export default function ForgotPasswordPage() {
       }
 
       startTransition(async () => {
-        let res: ForgotState | null = null;
         try {
           // ✅ l’envoi de l’email est désormais fait côté serveur dans forgotAction
-          res = await forgotAction(null, fd);
-        } catch (err) {
+          await forgotAction(null, fd);
+        } catch {
           // Anti-énumération : message générique quoi qu’il arrive
           setMessage("Si un compte existe avec cet email, un lien a été envoyé.");
           setError(null);
