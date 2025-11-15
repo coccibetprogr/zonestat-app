@@ -1,6 +1,6 @@
 // src/utils/supabase/action.ts
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieMethodsServer } from "@supabase/ssr";
 
 type CookieOptions = {
   domain?: string;
@@ -16,7 +16,9 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 if (process.env.NODE_ENV === "production") {
   if (!SUPABASE_URL || !SUPABASE_ANON) {
-    throw new Error("Missing Supabase config in production: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    throw new Error(
+      "Missing Supabase config in production: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    );
   }
 }
 
@@ -25,20 +27,13 @@ if (process.env.NODE_ENV === "production") {
  * là où les cookies sont MUTABLES.
  */
 export async function actionClient() {
-  const cookieStore = await cookies();
+  // cookies() est synchrone, mais on laisse async pour ne rien casser à l'appel
+  const cookieStore = cookies();
 
   return createServerClient(SUPABASE_URL!, SUPABASE_ANON!, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
-      },
-      set(name: string, value: string, options?: CookieOptions) {
-        cookieStore.set({ name, value, ...(options ?? {}) });
-      },
-      remove(name: string, options?: CookieOptions) {
-        cookieStore.delete({ name, ...(options ?? {}) });
-      },
-    },
+    // 🔑 On passe directement le store de Next, typé comme CookieMethodsServer
+    cookies: cookieStore as unknown as CookieMethodsServer,
+
     // ✅ Empêche Supabase d'utiliser PKCE pour les liens email
     auth: {
       flowType: "implicit",
