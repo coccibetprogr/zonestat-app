@@ -166,7 +166,28 @@ export async function rateLimit(
         })
       : limiter;
 
-  const r = (await customLimiter.limit(bucketKey)) as UpstashResponse;
+  // ⬇⬇⬇ SEULE PARTIE MODIFIÉE : on sécurise l'appel pour éviter les erreurs `evalsha` ⬇⬇⬇
+  let r: UpstashResponse;
+
+  try {
+    r = (await customLimiter.limit(bucketKey)) as UpstashResponse;
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[rateLimit] customLimiter.limit(bucketKey) a échoué, fallback ALLOW (upstash_runtime_error).",
+        error,
+      );
+    }
+
+    // On préfère ne pas casser la route (500) en cas d'erreur Upstash runtime.
+    return {
+      ok: true,
+      limit,
+      remaining: limit,
+      reset: Date.now() + windowMs,
+      reason: "upstash_runtime_error",
+    };
+  }
 
   return {
     ok: r.success,
