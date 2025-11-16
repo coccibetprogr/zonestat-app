@@ -1,7 +1,9 @@
+// src/app/account/page.tsx
 import { serverClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import LogoutForm from "@/components/LogoutForm";
+import { log } from "@/utils/observability/log";
 
 export const dynamic = "force-dynamic";
 
@@ -9,17 +11,36 @@ export default async function AccountPage() {
   const supabase = await serverClient();
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+
+  if (userError) {
+    log.error("account.user_fetch_error", {
+      code: userError.code,
+      message: userError.message,
+    });
+  }
 
   if (!user) redirect("/login?next=/account");
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("stripe_customer_id, stripe_subscription_status")
     .eq("id", user.id)
     .maybeSingle();
 
-  const subscriptionStatus = profile?.stripe_subscription_status ?? "Aucun abonnement actif";
+  if (profileError) {
+    log.error("account.profile_fetch_error", {
+      userId: user.id,
+      code: profileError.code,
+      message: profileError.message,
+    });
+  }
+
+  const subscriptionStatus =
+    profileError
+      ? "Statut d’abonnement indisponible (réessaie plus tard)."
+      : profile?.stripe_subscription_status ?? "Aucun abonnement actif";
 
   return (
     <div className="max-w-3xl mx-auto w-full fade-in-up">
@@ -45,7 +66,8 @@ export default async function AccountPage() {
         <div className="border-t border-line pt-6 fade-in-up">
           <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
             <h2 className="text-lg font-semibold">Abonnement</h2>
-            {subscriptionStatus && subscriptionStatus !== "Aucun abonnement actif" ? (
+            {subscriptionStatus && !subscriptionStatus.startsWith("Statut d’abonnement indisponible") &&
+            subscriptionStatus !== "Aucun abonnement actif" ? (
               <span className="badge border-primary/40 bg-[rgba(16,185,129,0.08)] text-[var(--color-primary)]">
                 {subscriptionStatus}
               </span>

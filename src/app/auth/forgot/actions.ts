@@ -1,57 +1,62 @@
 // src/app/auth/forgot/actions.ts
 "use server";
 
-import crypto from "node:crypto";
+import { cookies, headers } from "next/headers";
 import { z } from "zod";
-import { headers, cookies } from "next/headers";
-import { actionClient } from "@/utils/supabase/action";
 import { rateLimit } from "@/utils/rateLimit";
-import {
-  getAllowedOriginsFromHeaders,
-  isOriginAllowed,
-} from "@/utils/security/origin";
-import { verifyTurnstile } from "@/lib/turnstile";
 import { log } from "@/utils/observability/log";
-
-export type ForgotState = {
-  ok?: boolean;
-  error?: string;
-};
-
-function readCsrfFromCookie(raw: string | undefined | null): string | null {
-  if (!raw) return null;
-  const token = raw.split(":")[0]?.trim();
-  return token || null;
-}
-
-function rlKey(kind: "email" | "hash", email: string): string {
-  const norm = email.trim().toLowerCase();
-  if (kind === "email") return norm;
-  return crypto.createHash("sha256").update(norm).digest("hex");
-}
+import crypto from "node:crypto";
+import { actionClient } from "@/utils/supabase/action";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 const forgotSchema = z.object({
   email: z.string().email(),
-  csrf: z.string().min(1),
+  csrf: z.string().min(10),
   turnstile: z.string().optional(),
 });
 
-export async function forgotAction(
-  _prev: ForgotState,
-  formData: FormData,
-): Promise<ForgotState> {
-  const h = await headers();
-  const origin = h.get("origin");
-  const referer = h.get("referer") || undefined;
+type ForgotState =
+  | { ok: true; message: string }
+  | { ok: false; error: string };
 
-  const allowed = getAllowedOriginsFromHeaders(h);
-  if (!origin || !isOriginAllowed(origin, allowed)) {
+function readCsrfFromCookie(raw: string | null): string | null {
+  if (!raw) return null;
+  const [token] = raw.split(":");
+  return token || null;
+}
+
+function rlKey(...parts: string[]) {
+  const secret = process.env.RL_KEY_SECRET;
+  if (process.env.NODE_ENV === "production" && !secret) {
+    log.error("rateLimit.missing_rl_key_secret_in_prod");
+    throw new Error("Rate limit secret missing in production");
+  }
+  const hmac = crypto.createHmac("sha256", String(secret || "dev-only"));
+  hmac.update(parts.join("|"));
+  return hmac.digest("hex").slice(0, 48);
+}
+
+export async function forgotAction(_prevState: ForgotState | null, formData: FormData): Promise<ForgotState> {
+  const h = await headers();
+
+  // ---- Origin check (CSRF bandeau) ----
+  const origin = h.get("origin") || "";
+  const host = h.get("host") || "";
+  const site = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!site) {
+    log.error("auth.forgot.missing_site_url_env");
+    return { ok: false, error: "Configuration serveur invalide (site_url)." };
+  }
+  const allowedOrigin = new URL(site).origin;
+  const derivedOrigin = `https://${host}`;
+
+  if (origin !== allowedOrigin && origin !== derivedOrigin) {
     log.warn("auth.forgot.invalid_origin", {
       origin,
-      referer,
-      allowed: Array.from(allowed),
+      allowedOrigin,
+      derivedOrigin,
     });
-    return { ok: false, error: "Requête invalide." };
+    return { ok: false, error: "Origine de la requête invalide." };
   }
 
   const rawEmail = formData.get("email");
@@ -88,7 +93,7 @@ export async function forgotAction(
     return { ok: false, error: "Requête CSRF invalide." };
   }
 
-  // 🔒 Clé de rate-limit basée sur le hash de l’email, plus d’email en clair
+  // 🔒 Rate limit sur mail HASHÉ (plus d’email en clair)
   const rl = await rateLimit(`forgot:${emailHash}`, {
     limit: 5,
     window: "1 h",
@@ -113,36 +118,24 @@ export async function forgotAction(
     undefined;
 
   const hashedIp = ip ? crypto.createHash("sha256").update(ip).digest("hex") : undefined;
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
-  const secret = process.env.TURNSTILE_SECRET_KEY?.trim();
   const isProd = process.env.NODE_ENV === "production";
 
-  // En dev / test sans Turnstile, on ne bloque pas sur le captcha
-  if (siteKey && secret && isProd) {
-    if (!turnstile) {
-      log.warn("auth.forgot.turnstile_missing", {
-        emailHash,
-        ipHash: hashedIp,
-      });
-      return {
-        ok: false,
-        error: "Captcha manquant.",
-      };
-    }
+  // ---- TURNSTILE ----
+  const captchaToken =
+    typeof turnstile === "string" ? turnstile.trim() : "";
 
-    const captchaToken = typeof turnstile === "string" ? turnstile.trim() : "";
+  if (isProd && !captchaToken) {
+    log.warn("auth.forgot.turnstile_missing", {
+      emailHash,
+      ipHash: hashedIp,
+    });
+    return {
+      ok: false,
+      error: "Captcha manquant.",
+    };
+  }
 
-    if (!captchaToken) {
-      log.warn("auth.forgot.turnstile_missing", {
-        emailHash,
-        ipHash: hashedIp,
-      });
-      return {
-        ok: false,
-        error: "Captcha manquant.",
-      };
-    }
-
+  if (captchaToken) {
     const captchaOk = await verifyTurnstile(captchaToken, { ip });
 
     if (!captchaOk) {
@@ -169,17 +162,37 @@ export async function forgotAction(
     if (error) {
       log.error("auth.forgot.supabase_error", {
         emailHash,
-        error: error.message,
+        code: error.code,
+        message: error.message,
       });
-      return { ok: true };
+
+      return {
+        ok: false,
+        error: "Impossible d’envoyer le lien. Réessaie plus tard.",
+      };
     }
 
-    log.info("auth.forgot.reset_sent", { email_hash: emailHash });
-  } catch (err: unknown) {
-    log.error("auth.forgot.server_send_error", {
-      error: err instanceof Error ? err.message : String(err),
+    log.info("auth.forgot.reset_sent", {
+      emailHash,
+      ipHash: hashedIp,
     });
-  }
 
-  return { ok: true };
+    return {
+      ok: true,
+      message:
+        "Si un compte existe avec cet email, un lien de réinitialisation a été envoyé.",
+    };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    log.error("auth.forgot.server_send_error", {
+      emailHash,
+      ipHash: hashedIp,
+      error: message,
+    });
+
+    return {
+      ok: false,
+      error: "Erreur serveur. Réessaie plus tard.",
+    };
+  }
 }

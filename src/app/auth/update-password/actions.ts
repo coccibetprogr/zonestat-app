@@ -21,71 +21,78 @@ function rlKey(...parts: string[]) {
   return hmac.digest("hex").slice(0, 48);
 }
 
-export async function updatePasswordGate(
-  _prev: UpdatePwGateState | null,
-  formData: FormData
-): Promise<UpdatePwGateState> {
+export async function updatePasswordGate(_prev: UpdatePwGateState | null, formData: FormData): Promise<UpdatePwGateState> {
   const h = await headers();
-  const jar = await cookies();
 
-  // ---- ORIGIN CHECK (helper centralisé) ----
-  const allowed = getAllowedOriginsFromHeaders(h);
-  const requestOrigin = h.get("origin") || h.get("referer");
-  if (!isOriginAllowed(requestOrigin, allowed)) {
-    return { error: "Requête invalide (origin)." };
+  // ---- Origin check (helper commun) ----
+  const allowedOrigins = getAllowedOriginsFromHeaders(h);
+  const origin = h.get("origin");
+  if (!isOriginAllowed(origin, allowedOrigins)) {
+    log.warn("auth.updatepw.invalid_origin", {
+      origin,
+      allowedOrigins,
+    });
+    return { error: "Origine de la requête invalide." };
   }
 
-  // ---- CSRF token-only ----
-  const csrfBodyEntry = formData.get("csrf");
-  const csrfBodyToken =
-    typeof csrfBodyEntry === "string"
-      ? csrfBodyEntry.split(":")[0]?.trim() || ""
-      : "";
-  const csrfCookieToken = jar.get("csrf")?.value?.split(":")?.[0] || "";
-  if (!csrfBodyToken || !csrfCookieToken || csrfBodyToken !== csrfCookieToken) {
-    return { error: "Requête invalide (csrf)." };
-  }
-
-  // ---- RATE LIMIT (HMAC; IP + compte/email si présent) ----
+  // ---- RATE LIMIT ----
   const ip =
     h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     h.get("x-real-ip") ||
     "unknown";
 
-  let keyIp: string, keyAcct: string;
+  let rlIpKey: string;
   try {
-    const email = (formData.get("email") || "").toString().toLowerCase();
-    keyIp = rlKey("updatepw:ip", ip);
-    keyAcct = rlKey("updatepw:acct", email || ip);
+    rlIpKey = rlKey("updatepw:ip", ip);
   } catch (e: unknown) {
     const errorMessage = e instanceof Error ? e.message : String(e);
     log.error("auth.updatepw.rlkey_error", { error: errorMessage });
-    return { error: "Service temporairement indisponible." };
+    return { error: "Erreur serveur (config). Contacte l’administrateur." };
   }
 
-  const rlA = await rateLimit(keyIp);
-  const rlB = await rateLimit(keyAcct);
-  if (!rlA.ok || !rlB.ok) {
-    log.warn("auth.updatepw.rate_limited", { ip });
+  const rl = await rateLimit(rlIpKey, { limit: 5, window: "10 m" });
+  if (!rl.ok) {
+    log.warn("auth.updatepw.ratelimit_blocked", {
+      ipHash: crypto.createHash("sha256").update(ip).digest("hex"),
+      limit: rl.limit,
+      remaining: rl.remaining,
+      reason: rl.reason,
+    });
     return { error: "Trop de tentatives. Réessaie plus tard." };
   }
 
-  // ---- Turnstile requis uniquement si secret + sitekey présents ----
-  const secret =
-    process.env.TURNSTILE_SECRET_KEY ||
-    process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ||
-    "";
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
-  const captchaRequired = Boolean(secret && siteKey);
-  const cfTokenEntry = formData.get("cf-turnstile-response");
-  const captchaToken = typeof cfTokenEntry === "string" ? cfTokenEntry.trim() : "";
+  // ---- CSRF (double-submit) ----
+  const csrfBodyRaw = formData.get("csrf")?.toString().trim() || "";
+  const csrfBodyToken = csrfBodyRaw.split(":")[0] || csrfBodyRaw;
+  const csrfCookieRaw = (await cookies()).get("csrf")?.value || "";
+  const csrfCookieToken = csrfCookieRaw.split(":")[0] || csrfCookieRaw;
+  if (!csrfBodyToken || !csrfCookieToken || csrfBodyToken !== csrfCookieToken) {
+    log.warn("auth.updatepw.csrf_mismatch", {
+      hasBody: Boolean(csrfBodyToken),
+      hasCookie: Boolean(csrfCookieToken),
+      same: csrfBodyToken === csrfCookieToken,
+    });
+    return { error: "Requête invalide (csrf)." };
+  }
 
-  if (captchaRequired && !captchaToken) {
+  // ---- TURNSTILE ----
+  const cfToken = formData.get("cf-turnstile-response");
+  const captchaToken = typeof cfToken === "string" ? cfToken.trim() : "";
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (isProd && !captchaToken) {
+    log.warn("auth.updatepw.turnstile_missing", {
+      ipHash: crypto.createHash("sha256").update(ip).digest("hex"),
+    });
     return { error: "Captcha manquant." };
   }
-  if (captchaRequired && captchaToken) {
+
+  if (captchaToken) {
     const okCaptcha = await verifyTurnstile(captchaToken, { ip });
     if (!okCaptcha) {
+      log.warn("auth.updatepw.turnstile_failed", {
+        ipHash: crypto.createHash("sha256").update(ip).digest("hex"),
+      });
       return { error: "Vérification anti-bot échouée. Réessaie." };
     }
   }
