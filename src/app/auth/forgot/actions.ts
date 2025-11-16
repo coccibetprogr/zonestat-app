@@ -15,7 +15,7 @@ const forgotSchema = z.object({
   turnstile: z.string().optional(),
 });
 
-type ForgotState =
+export type ForgotState =
   | { ok: true; message: string }
   | { ok: false; error: string };
 
@@ -36,7 +36,10 @@ function rlKey(...parts: string[]) {
   return hmac.digest("hex").slice(0, 48);
 }
 
-export async function forgotAction(_prevState: ForgotState | null, formData: FormData): Promise<ForgotState> {
+export async function forgotAction(
+  _prevState: ForgotState | null,
+  formData: FormData,
+): Promise<ForgotState> {
   const h = await headers();
 
   // ---- Origin check (CSRF bandeau) ----
@@ -117,12 +120,13 @@ export async function forgotAction(_prevState: ForgotState | null, formData: For
     h.get("cf-connecting-ip") ||
     undefined;
 
-  const hashedIp = ip ? crypto.createHash("sha256").update(ip).digest("hex") : undefined;
+  const hashedIp = ip
+    ? crypto.createHash("sha256").update(ip).digest("hex")
+    : undefined;
   const isProd = process.env.NODE_ENV === "production";
 
   // ---- TURNSTILE ----
-  const captchaToken =
-    typeof turnstile === "string" ? turnstile.trim() : "";
+  const captchaToken = typeof turnstile === "string" ? turnstile.trim() : "";
 
   if (isProd && !captchaToken) {
     log.warn("auth.forgot.turnstile_missing", {
