@@ -27,7 +27,7 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error(
-    "[supabase/server] Config Supabase manquante (URL ou clé publique)"
+    "[supabase/server] Config Supabase manquante (URL ou clé publique)",
   );
 }
 
@@ -39,7 +39,6 @@ export async function serverClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    // ⚠️ On cast en `any` pour gérer à la fois CookieMethodsServerDeprecated & CookieMethodsServer
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value;
@@ -52,7 +51,7 @@ export async function serverClient(): Promise<SupabaseClient> {
           if (process.env.NODE_ENV !== "production") {
             console.warn(
               "[supabase/server] Échec d'écriture du cookie (RSC read-only ?)",
-              error
+              error,
             );
           }
         }
@@ -64,11 +63,12 @@ export async function serverClient(): Promise<SupabaseClient> {
           if (process.env.NODE_ENV !== "production") {
             console.warn(
               "[supabase/server] Échec de suppression du cookie (RSC read-only ?)",
-              error
+              error,
             );
           }
         }
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any,
   });
 
@@ -92,6 +92,7 @@ export async function serverClientReadOnly(): Promise<SupabaseClient> {
       remove() {
         /* lecture seule */
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any,
   });
 

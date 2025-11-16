@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "pnpm -w -s test:unit && pnpm -w -s test:e2e || true",
+    "test": "pnpm test:unit && pnpm test:e2e || true",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",

@@ -3,6 +3,15 @@ import { NextResponse } from "next/server";
 import { rateLimit } from "@/utils/rateLimit";
 
 export async function GET(req: Request) {
+  const isTestEnv = process.env.NODE_ENV === "test";
+  const isE2eEnabled = process.env.E2E_RL_ENABLED === "true";
+
+  // 🔒 Par défaut, endpoint indispo en prod / dev.
+  // Pour les tests E2E réels, tu peux définir E2E_RL_ENABLED="true".
+  if (!isTestEnv && !isE2eEnabled) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   const ip =
     req.headers.get("x-zonestat-ip") ||
     req.headers.get("x-vercel-ip") ||

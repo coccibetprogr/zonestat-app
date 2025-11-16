@@ -88,7 +88,8 @@ export async function forgotAction(
     return { ok: false, error: "Requête CSRF invalide." };
   }
 
-  const rl = await rateLimit(`forgot:${rlKey("email", email)}`, {
+  // 🔒 Clé de rate-limit basée sur le hash de l’email, plus d’email en clair
+  const rl = await rateLimit(`forgot:${emailHash}`, {
     limit: 5,
     window: "1 h",
   });
@@ -116,18 +117,16 @@ export async function forgotAction(
   const secret = process.env.TURNSTILE_SECRET_KEY?.trim();
   const isProd = process.env.NODE_ENV === "production";
 
-  if (isProd) {
-    if (!siteKey || !secret) {
-      log.error("auth.forgot.turnstile_misconfigured", {
+  // En dev / test sans Turnstile, on ne bloque pas sur le captcha
+  if (siteKey && secret && isProd) {
+    if (!turnstile) {
+      log.warn("auth.forgot.turnstile_missing", {
         emailHash,
         ipHash: hashedIp,
-        hasSiteKey: Boolean(siteKey),
-        hasSecret: Boolean(secret),
       });
-
       return {
         ok: false,
-        error: "Service momentanément indisponible. Réessaie dans quelques minutes.",
+        error: "Captcha manquant.",
       };
     }
 
