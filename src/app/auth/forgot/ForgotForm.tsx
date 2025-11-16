@@ -130,6 +130,16 @@ export default function ForgotForm({
     };
   }, [turnstileSiteKey]);
 
+  // 🔎 On dérive un message d’erreur de façon typesafe,
+  // même si ForgotState est une union (avec ou sans `error`)
+  const errorMessage = useMemo(() => {
+    if (!state) return undefined;
+    if ("error" in state && state.error) {
+      return state.error;
+    }
+    return undefined;
+  }, [state]);
+
   return (
     <form
       action={formAction}
@@ -169,9 +179,9 @@ export default function ForgotForm({
             Si un compte existe avec cet email, un lien a été envoyé.
           </p>
         )}
-        {state?.error && (
+        {errorMessage && (
           <p className="text-[13px]" style={{ color: "var(--color-danger)" }}>
-            {state.error}
+            {errorMessage}
           </p>
         )}
       </div>

@@ -15,9 +15,12 @@ const forgotSchema = z.object({
   turnstile: z.string().optional(),
 });
 
-export type ForgotState =
-  | { ok: true; message: string }
-  | { ok: false; error: string };
+// ✅ Type simplifié pour TypeScript et ForgotForm.tsx
+export type ForgotState = {
+  ok: boolean;
+  message?: string;
+  error?: string;
+};
 
 function readCsrfFromCookie(raw: string | null): string | null {
   if (!raw) return null;
