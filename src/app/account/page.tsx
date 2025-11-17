@@ -62,6 +62,15 @@ function formatPeriodEnd(
   return `Renouvellement le ${formatted}.`;
 }
 
+// petite fonction pour scorer les statuts (on veut privilégier les subs actives / trialing)
+function scoreStatus(status: Stripe.Subscription.Status): number {
+  if (status === "active" || status === "trialing") return 3;
+  if (status === "past_due" || status === "unpaid") return 2;
+  if (status === "incomplete" || status === "incomplete_expired") return 1;
+  if (status === "canceled") return 0;
+  return 0;
+}
+
 export default async function AccountPage() {
   const supabase = await serverClient();
   const {
@@ -92,19 +101,139 @@ export default async function AccountPage() {
     });
   }
 
-  // On tente de récupérer l’abonnement Stripe en live si on a un customer_id
+  // 1) On tente de récupérer l’abonnement Stripe à partir du customer_id enregistré
   let subscription: SubscriptionWithPeriod | null = null;
-  if (profile?.stripe_customer_id) {
+  let effectiveCustomerId: string | null = profile?.stripe_customer_id ?? null;
+
+  if (effectiveCustomerId) {
     try {
       const list = await stripe.subscriptions.list({
-        customer: profile.stripe_customer_id,
+        customer: effectiveCustomerId,
         status: "all",
-        limit: 1,
+        limit: 1, // 1 seul appel rapide
       });
       subscription = (list.data[0] as SubscriptionWithPeriod) ?? null;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error("account.subscription_fetch_error", {
+        userId: user.id,
+        msg,
+      });
+    }
+  }
+
+  // 2) Email lookup UNIQUEMENT si :
+  //    - aucune subscription trouvée
+  //    - ET aucun stripe_customer_id encore enregistré en base
+  const shouldEmailLookup =
+    !subscription && !profile?.stripe_customer_id && user.email;
+
+  if (shouldEmailLookup && user.email) {
+    try {
+      const customers = await stripe.customers.list({
+        email: user.email,
+        limit: 5,
+      });
+
+      let bestSub: SubscriptionWithPeriod | null = null;
+      let bestCustomerId: string | null = null;
+      let foundPerfect = false;
+
+      for (const customer of customers.data) {
+        const subs = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: "all",
+          limit: 5,
+        });
+
+        for (const raw of subs.data) {
+          const sub = raw as SubscriptionWithPeriod;
+
+          if (!bestSub) {
+            bestSub = sub;
+            bestCustomerId = customer.id;
+          } else {
+            const currentScore = scoreStatus(sub.status);
+            const bestScore = scoreStatus(bestSub.status);
+
+            if (currentScore > bestScore) {
+              bestSub = sub;
+              bestCustomerId = customer.id;
+            } else if (currentScore === bestScore) {
+              const curCreated = (sub as any).created ?? 0;
+              const bestCreated = (bestSub as any).created ?? 0;
+              if (curCreated > bestCreated) {
+                bestSub = sub;
+                bestCustomerId = customer.id;
+              }
+            }
+          }
+
+          // si on trouve active / trialing → c’est parfait, on s’arrête
+          if (sub.status === "active" || sub.status === "trialing") {
+            foundPerfect = true;
+            break;
+          }
+        }
+
+        if (foundPerfect) break;
+      }
+
+      if (bestSub && bestCustomerId) {
+        subscription = bestSub;
+        effectiveCustomerId = bestCustomerId;
+
+        // On persiste le customer_id pour ne PLUS jamais refaire un lookup email pour ce user
+        const { error: updateError } = await supabase
+          .from("profiles")
+          .update({ stripe_customer_id: effectiveCustomerId })
+          .eq("id", user.id);
+
+        if (updateError) {
+          log.error("account.profile_update_stripe_customer_error", {
+            userId: user.id,
+            code: updateError.code,
+            message: updateError.message,
+          });
+        }
+      } else if (customers.data.length > 1) {
+        log.warn("account.email_lookup_ambiguous_no_subscription", {
+          userId: user.id,
+          email: user.email,
+          customerCount: customers.data.length,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error("account.email_lookup_error", {
+        userId: user.id,
+        email: user.email,
+        msg,
+      });
+    }
+  }
+
+  // 3) Si on a trouvé une subscription Stripe, on synchronise le statut vers Supabase
+  if (subscription && subscription.status !== profile?.stripe_subscription_status) {
+    try {
+      const { error: statusUpdateError } = await supabase
+        .from("profiles")
+        .update({
+          stripe_subscription_status: subscription.status,
+          stripe_subscription_id: subscription.id,
+        })
+        .eq("id", user.id);
+
+      if (statusUpdateError) {
+        log.error("account.profile_update_status_error", {
+          userId: user.id,
+          code: statusUpdateError.code,
+          message: statusUpdateError.message,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error("account.profile_update_status_exception", {
         userId: user.id,
         msg,
       });
@@ -148,7 +277,8 @@ export default async function AccountPage() {
         <header className="flex flex-col gap-2 text-center">
           <h1 className="text-3xl font-semibold tracking-tight">Mon compte</h1>
           <p className="text-sm text-fg-subtle">
-            Consulte tes informations personnelles et gère ton abonnement ZoneStat.
+            Consulte tes informations personnelles et gère ton abonnement
+            ZoneStat.
           </p>
         </header>
 

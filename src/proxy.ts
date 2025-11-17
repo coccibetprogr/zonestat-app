@@ -1,3 +1,4 @@
+// src/proxy.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -32,8 +33,46 @@ const PERMISSIONS_POLICY = [
   "xr-spatial-tracking=()",
 ].join(", ");
 
+// -----------------------------
+// 🔍 Détection simple de session
+// -----------------------------
+function isUserLogged(req: NextRequest): boolean {
+  const cookieNames = req.cookies.getAll().map((c) => c.name);
+
+  // Cookie Supabase typique : sb_xxx_auth-token
+  const authCookie = cookieNames.find(
+    (name) => name.includes("sb") && name.includes("auth-token"),
+  );
+
+  return Boolean(authCookie);
+}
+
 export function proxy(req: NextRequest) {
-  // 1) route de ping interne
+  const path = req.nextUrl.pathname;
+  const loggedIn = isUserLogged(req);
+
+  // -------------------------
+  // 🔒 1) Redirections auth
+  // -------------------------
+
+  // 1A) User connecté → pas le droit d'aller sur /login ou /signup
+  if (loggedIn && (path === "/login" || path === "/signup")) {
+    return NextResponse.redirect(new URL("/account", req.url));
+  }
+
+  // 1B) User NON connecté → pas le droit d'aller sur /account ou /pricing
+  if (!loggedIn && (path === "/account" || path === "/pricing")) {
+    const url = new URL("/login", req.url);
+    url.searchParams.set("next", path);
+    return NextResponse.redirect(url);
+  }
+
+  // ⚠️ On ne touche PAS aux routes /auth/logout, /auth/forgot, etc.
+  // Elles passent juste au bloc suivant.
+
+  // -------------------------
+  // 2) Ping interne
+  // -------------------------
   if (req.nextUrl.pathname === "/__mw-ping") {
     return new NextResponse(null, {
       status: 204,
@@ -44,10 +83,11 @@ export function proxy(req: NextRequest) {
     });
   }
 
-  // 2) CSP + sécurité
+  // -------------------------
+  // 3) CSP + sécurité (ton code)
+  // -------------------------
   const nonce = generateNonce();
   const isProd = process.env.NODE_ENV === "production";
-
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-csp-nonce", nonce);
 
@@ -68,7 +108,7 @@ export function proxy(req: NextRequest) {
 }
 
 // -------------------------
-// UTILITAIRES
+// Utilities existants
 // -------------------------
 
 function generateNonce(): string {
@@ -92,23 +132,7 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
-type ParsedCsrfCookie = { token: string; timestamp: number };
-
-function parseCsrfCookie(value?: string | null): ParsedCsrfCookie | null {
-  if (!value) return null;
-  const [token, timestamp] = value.split(":");
-  const parsedTimestamp = Number(timestamp);
-  if (!token || Number.isNaN(parsedTimestamp)) {
-    return null;
-  }
-  return { token, timestamp: parsedTimestamp };
-}
-
-function ensureCsrfCookie(
-  req: NextRequest,
-  res: NextResponse,
-  secure: boolean
-) {
+function ensureCsrfCookie(req: NextRequest, res: NextResponse, secure: boolean) {
   const now = Date.now();
   const existing = parseCsrfCookie(req.cookies.get(CSRF_COOKIE_NAME)?.value);
 
@@ -136,19 +160,25 @@ function ensureCsrfCookie(
   });
 }
 
+type ParsedCsrfCookie = { token: string; timestamp: number };
+
+function parseCsrfCookie(value?: string | null): ParsedCsrfCookie | null {
+  if (!value) return null;
+  const [token, timestamp] = value.split(":");
+  const parsedTimestamp = Number(timestamp);
+  if (!token || Number.isNaN(parsedTimestamp)) {
+    return null;
+  }
+  return { token, timestamp: parsedTimestamp };
+}
+
 function generateRandomToken(bytesLength = 32): string {
   const bytes = new Uint8Array(bytesLength);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function applySecurityHeaders(
-  res: NextResponse,
-  nonce: string,
-  isProd: boolean
-) {
+function applySecurityHeaders(res: NextResponse, nonce: string, isProd: boolean) {
   res.headers.set("Content-Security-Policy", buildCsp(nonce));
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("X-Content-Type-Options", "nosniff");
@@ -162,7 +192,7 @@ function applySecurityHeaders(
     res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
     res.headers.set(
       "Strict-Transport-Security",
-      "max-age=31536000; includeSubDomains; preload"
+      "max-age=31536000; includeSubDomains; preload",
     );
   }
 }
@@ -203,3 +233,7 @@ function getClientIp(req: NextRequest): string | null {
 
   return null;
 }
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"],
+};

@@ -35,23 +35,43 @@ export async function GET(req: Request) {
   if (!stripeCustomerId) {
     const customers = await stripe.customers.list({
       email: user.email || undefined,
-      limit: 1,
+      limit: 3,
     });
+
+    // On refuse les cas ambigus (0 ou >1 clients) pour éviter d'exposer le mauvais portail
+    if (customers.data.length !== 1) {
+      log.warn("stripe.portal.ambiguous_customer", {
+        userId: user.id,
+        email: user.email,
+        customerCount: customers.data.length,
+      });
+      const url = new URL("/pricing", req.url);
+      return NextResponse.redirect(url, { status: 303 });
+    }
 
     const customer = customers.data[0];
     if (!customer) {
-      // Pas d’abonnement / client → on renvoie vers pricing
       const url = new URL("/pricing", req.url);
       return NextResponse.redirect(url, { status: 303 });
     }
 
     stripeCustomerId = customer.id;
 
-    // On persiste dans le profil
-    await supabase
+    // On persiste dans le profil, en gérant l'erreur
+    const { error: updateError } = await supabase
       .from("profiles")
       .update({ stripe_customer_id: stripeCustomerId })
       .eq("id", user.id);
+
+    if (updateError) {
+      log.error("stripe.portal.profile_update_error", {
+        userId: user.id,
+        code: updateError.code,
+        message: updateError.message,
+      });
+      const url = new URL("/pricing", req.url);
+      return NextResponse.redirect(url, { status: 303 });
+    }
   }
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || new URL(req.url).origin;

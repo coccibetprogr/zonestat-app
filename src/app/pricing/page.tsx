@@ -69,8 +69,7 @@ export async function createCheckoutSession(
   // Détermine l’URL du site
   const originHeader = origin || "";
   let siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "http://localhost:3000";
+    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
   try {
     if (!process.env.NEXT_PUBLIC_SITE_URL && originHeader) {
@@ -80,15 +79,30 @@ export async function createCheckoutSession(
     // on garde le fallback
   }
 
-  // Création de la session de Checkout
-  const session = await stripe.checkout.sessions.create({
+  // On récupère éventuellement le stripe_customer_id pour réutiliser le client Stripe
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("stripe_customer_id")
+    .eq("id", user!.id)
+    .maybeSingle();
+
+  if (profileError) {
+    log.error("stripe.checkout.profile_error", {
+      userId: user!.id,
+      code: profileError.code,
+      message: profileError.message,
+    });
+  }
+
+  // Création de la session de Checkout (avec réutilisation éventuelle du customer)
+  const params: Stripe.Checkout.SessionCreateParams = {
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${siteUrl}/account?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${siteUrl}/pricing?checkout=cancel`,
-    customer_email: user!.email || undefined,
     allow_promotion_codes: true,
     billing_address_collection: "auto",
+    client_reference_id: user!.id,
     subscription_data: {
       metadata: {
         supabase_user_id: user!.id,
@@ -99,7 +113,16 @@ export async function createCheckoutSession(
       supabase_user_id: user!.id,
       plan_key: plan.key,
     },
-  } satisfies Stripe.Checkout.SessionCreateParams);
+  };
+
+  // 🔁 Réutilise un customer Stripe existant si on l’a, sinon fallback email
+  if (profile?.stripe_customer_id) {
+    params.customer = profile.stripe_customer_id as string;
+  } else if (user!.email) {
+    params.customer_email = user!.email;
+  }
+
+  const session = await stripe.checkout.sessions.create(params);
 
   if (!session.url) {
     log.error("stripe.checkout.no_session_url", {
@@ -186,7 +209,7 @@ export default async function PricingPage() {
                 <input
                   type="hidden"
                   name="priceId"
-                  value={plan.priceId!}
+                  value={plan.priceId as string}
                 />
 
                 <button
