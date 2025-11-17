@@ -33,6 +33,7 @@ const PERMISSIONS_POLICY = [
 ].join(", ");
 
 export function proxy(req: NextRequest) {
+  // 1) route de ping interne
   if (req.nextUrl.pathname === "/__mw-ping") {
     return new NextResponse(null, {
       status: 204,
@@ -43,8 +44,10 @@ export function proxy(req: NextRequest) {
     });
   }
 
+  // 2) CSP + sécurité
   const nonce = generateNonce();
   const isProd = process.env.NODE_ENV === "production";
+
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-csp-nonce", nonce);
 
@@ -63,6 +66,10 @@ export function proxy(req: NextRequest) {
 
   return res;
 }
+
+// -------------------------
+// UTILITAIRES
+// -------------------------
 
 function generateNonce(): string {
   return crypto.randomUUID().replace(/-/g, "");
@@ -85,7 +92,23 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
-function ensureCsrfCookie(req: NextRequest, res: NextResponse, secure: boolean) {
+type ParsedCsrfCookie = { token: string; timestamp: number };
+
+function parseCsrfCookie(value?: string | null): ParsedCsrfCookie | null {
+  if (!value) return null;
+  const [token, timestamp] = value.split(":");
+  const parsedTimestamp = Number(timestamp);
+  if (!token || Number.isNaN(parsedTimestamp)) {
+    return null;
+  }
+  return { token, timestamp: parsedTimestamp };
+}
+
+function ensureCsrfCookie(
+  req: NextRequest,
+  res: NextResponse,
+  secure: boolean
+) {
   const now = Date.now();
   const existing = parseCsrfCookie(req.cookies.get(CSRF_COOKIE_NAME)?.value);
 
@@ -113,25 +136,19 @@ function ensureCsrfCookie(req: NextRequest, res: NextResponse, secure: boolean) 
   });
 }
 
-type ParsedCsrfCookie = { token: string; timestamp: number };
-
-function parseCsrfCookie(value?: string | null): ParsedCsrfCookie | null {
-  if (!value) return null;
-  const [token, timestamp] = value.split(":");
-  const parsedTimestamp = Number(timestamp);
-  if (!token || Number.isNaN(parsedTimestamp)) {
-    return null;
-  }
-  return { token, timestamp: parsedTimestamp };
-}
-
 function generateRandomToken(bytesLength = 32): string {
   const bytes = new Uint8Array(bytesLength);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 }
 
-function applySecurityHeaders(res: NextResponse, nonce: string, isProd: boolean) {
+function applySecurityHeaders(
+  res: NextResponse,
+  nonce: string,
+  isProd: boolean
+) {
   res.headers.set("Content-Security-Policy", buildCsp(nonce));
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("X-Content-Type-Options", "nosniff");
@@ -145,7 +162,7 @@ function applySecurityHeaders(res: NextResponse, nonce: string, isProd: boolean)
     res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
     res.headers.set(
       "Strict-Transport-Security",
-      "max-age=31536000; includeSubDomains; preload",
+      "max-age=31536000; includeSubDomains; preload"
     );
   }
 }
@@ -186,7 +203,3 @@ function getClientIp(req: NextRequest): string | null {
 
   return null;
 }
-
-export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"],
-};
