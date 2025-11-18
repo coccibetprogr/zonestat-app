@@ -17,6 +17,7 @@ jobs:
       TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
       RL_KEY_SECRET: "ci-secret"
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
     steps:
       - name: Checkout
