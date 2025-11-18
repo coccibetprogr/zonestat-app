@@ -1,6 +1,6 @@
 // src/config/pricing.ts
 
-export type PlanKey = "monthly" | "yearly";
+export type PlanKey = "weekly" | "monthly";
 
 export type PricingPlan = {
   key: PlanKey;
@@ -13,19 +13,19 @@ export type PricingPlan = {
 
 export const PRICING_PLANS: PricingPlan[] = [
   {
+    key: "weekly",
+    name: "Hebdomadaire",
+    description: "Accès complet à ZoneStat pendant 7 jours.",
+    priceIdEnv: "STRIPE_PRICE_WEEKLY",
+    priceLabel: "9,99 € / 7 jours",
+    highlight: true,
+  },
+  {
     key: "monthly",
     name: "Mensuel",
     description: "Accès complet à ZoneStat, facturé chaque mois.",
     priceIdEnv: "STRIPE_PRICE_MONTHLY",
-    priceLabel: "9,90 € / mois",
-    highlight: true,
-  },
-  {
-    key: "yearly",
-    name: "Annuel",
-    description: "2 mois offerts en payant à l’année.",
-    priceIdEnv: "STRIPE_PRICE_YEARLY",
-    priceLabel: "99 € / an",
+    priceLabel: "29,99 € / mois",
   },
 ];
 
