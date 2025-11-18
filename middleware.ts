@@ -1,2 +1,2 @@
 // middleware.ts
-export { proxy as middleware } from "./src/proxy";
+//export { proxy as middleware } from "./src/proxy";
