@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    env:
+      # ENV safe pour build Next "prod" en CI
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
+      NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy.dummy"
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+      TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA"
+      RL_KEY_SECRET: "ci-secret"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Debug files (pwd / ls / find lockfile)
+        run: |
+          echo "PWD:" && pwd
+          echo "--- LS -LA root" && ls -la
+          echo "--- Find pnpm-lock.yaml (depth 3)" && find . -maxdepth 3 -name pnpm-lock.yaml -print
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js (no cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Approve native builds (sharp/esbuild)
+        run: pnpm config set allowed-builds '["esbuild","sharp","unrs-resolver"]'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      # ⬇️ Méthode officielle Playwright: CLI + deps système
+      - name: Install Playwright browsers and system deps
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build app
+        run: pnpm build
+
+      - name: Start app
+        run: pnpm start &
+
+      - name: Wait for app
+        run: npx --yes wait-on@7 http://localhost:3000
+
+      - name: Run e2e tests
+        run: BASE_URL=http://localhost:3000 pnpm test:e2e
