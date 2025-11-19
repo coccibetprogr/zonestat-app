@@ -222,7 +222,6 @@ export default function DashboardClient({
   >({});
   const [aiInsights, setAiInsights] = useState<Record<string, AiInsight>>({});
   const [visibleCount, setVisibleCount] = useState<number>(20);
-  const [now, setNow] = useState<number>(() => Date.now()); // ms
   const [viewMode, setViewMode] = useState<"detailed" | "compact">("detailed");
   const [sportTab, setSportTab] = useState<SportTabId>("for-you");
 
@@ -230,28 +229,13 @@ export default function DashboardClient({
 
   const isCompact = viewMode === "compact";
 
-  // 🕒 met à jour "now" toutes les 60s pour que les matchs basculent automatiquement
-  useEffect(() => {
-    const id = setInterval(() => {
-      setNow(Date.now());
-    }, 60_000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Normalisation des matchs + filtre "match non démarré"
+  // ✅ Normalisation des matchs (on ne filtre plus les matchs passés)
   const items: EnrichedMatch[] = useMemo(
     () =>
       (matches ?? [])
         .map((raw: RawMatch) => normalize(raw))
-        .filter((m) => {
-          // si on n'a pas de timestamp, on garde par défaut
-          if (!m.timestamp || Number.isNaN(m.timestamp)) return true;
-          // fixture.timestamp = secondes depuis epoch (UTC)
-          const kickOffMs = m.timestamp * 1000;
-          return kickOffMs > now; // on ne garde que les matchs à venir
-        })
         .sort((a, b) => a.timestamp - b.timestamp),
-    [matches, now],
+    [matches],
   );
 
   // Filtrage global (onglet sport + recherche + importance)
@@ -701,7 +685,7 @@ export default function DashboardClient({
                 {/* Équipes + éventuels logos */}
                 <div className="flex-1 text-sm font-medium text-fg text-center sm:text-left">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1 sm:gap-3">
-                    <div className="flex items-center justify-end gap-1 sm:gap-2 max-w-[46%] sm:max-w-none">
+                    <div className="flex items-center justify-center sm:justify-end gap-1 sm:gap-2 max-w-full sm:max-w-none">
                       {m.homeLogo && (
                         <img
                           src={m.homeLogo}
@@ -717,7 +701,7 @@ export default function DashboardClient({
                       vs
                     </span>
 
-                    <div className="flex items-center justify-start gap-1 sm:gap-2 max-w-[46%] sm:max-w-none">
+                    <div className="flex items-center justify-center sm:justify-start gap-1 sm:gap-2 max-w-full sm:max-w-none">
                       {m.awayLogo && (
                         <img
                           src={m.awayLogo}
