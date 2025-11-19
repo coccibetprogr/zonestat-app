@@ -10,12 +10,8 @@ import {
   Search,
   Filter,
   Clock,
-  Star,
-  Lock,
-  Unlock,
   Sparkles,
   ChevronDown,
-  PencilLine,
 } from "lucide-react";
 import {
   SportsTabs,
@@ -217,9 +213,7 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   const [search, setSearch] = useState<string>("");
   const [importance, setImportance] = useState<"all" | Importance>("all");
-  const [predictions, setPredictions] = useState<
-    Record<string, UserPrediction>
-  >({});
+  const [predictions] = useState<Record<string, UserPrediction>>({});
   const [aiInsights, setAiInsights] = useState<Record<string, AiInsight>>({});
   const [visibleCount, setVisibleCount] = useState<number>(20);
   const [viewMode, setViewMode] = useState<"detailed" | "compact">("detailed");
@@ -324,52 +318,11 @@ export default function DashboardClient({
     [items],
   );
 
-  const updatePrediction = (
-    matchId: string,
-    partial: Partial<UserPrediction>,
-  ) => {
-    setPredictions((prev) => {
-      const current = prev[matchId] ?? defaultPrediction;
-
-      // si locked, on ne touche pas au outcome
-      if (
-        current.locked &&
-        partial.outcome &&
-        partial.outcome !== current.outcome
-      ) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [matchId]: {
-          ...current,
-          ...partial,
-        },
-      };
-    });
-  };
-
-  const outcomeLabel: Record<PredictionOutcome, string> = {
-    none: "Pas de prono",
-    home: "Domicile",
-    draw: "Nul",
-    away: "Extérieur",
-  };
-
-  // Heuristiques UI : risk + goals profile pour affichage (en attendant l'IA)
+  // Heuristiques UI : risk + goals profile pour l’IA
   function getRiskLabel(importance: Importance): string {
     if (importance === "high") return "Élevé";
     if (importance === "medium") return "Modéré";
     return "Bas";
-  }
-
-  function getRiskColorClasses(importance: Importance): string {
-    if (importance === "high")
-      return "bg-rose-50 text-rose-700 border-rose-200";
-    if (importance === "medium")
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
 
   function getGoalsProfile(m: EnrichedMatch): string {
@@ -474,7 +427,7 @@ export default function DashboardClient({
   const visibleMatches = filteredMatches.slice(0, visibleCount);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10 space-y-10">
+    <div className="max-w-6xl mx-auto px-4 py-10 space-y-10">
       {/* HEADER PREMIUM */}
       <header className="space-y-4">
         <div className="inline-flex items-center gap-2 rounded-full border border-line bg-bg-soft px-4 py-1.5 text-xs uppercase tracking-widest">
@@ -489,7 +442,7 @@ export default function DashboardClient({
             </h1>
             <p className="text-sm text-fg-muted">
               {totalMatches} match
-              {totalMatches > 1 ? "s" : ""} à venir analysé
+              {totalMatches > 1 ? "s" : ""} analysé
               {totalMatches > 1 ? "s" : ""} par le moteur ZoneStat.
             </p>
           </div>
@@ -626,7 +579,7 @@ export default function DashboardClient({
             <span className="font-medium text-fg">
               {filteredMatches.length}
             </span>{" "}
-            matchs à venir · Mode{" "}
+            matchs · Mode{" "}
             <span className="font-medium text-fg">
               {viewMode === "detailed" ? "détaillé" : "compact"}
             </span>
@@ -639,36 +592,30 @@ export default function DashboardClient({
       <section className="space-y-3">
         {filteredMatches.length === 0 && (
           <div className="text-center text-fg-muted py-10 border border-dashed border-line rounded-2xl bg-bg-soft text-sm">
-            Aucun match à venir ne correspond aux filtres.  
+            Aucun match ne correspond aux filtres.  
             Essaie d&apos;élargir la recherche ou de modifier l&apos;importance.
           </div>
         )}
 
         {visibleMatches.map((m) => {
-          const prediction = predictions[m.id] ?? defaultPrediction;
           const ai = aiInsights[m.id];
           const hasAi = !!ai?.summary && !ai.loading;
-
-          const isLocked = prediction.locked;
-          const isFavorite = prediction.favorite;
 
           return (
             <article
               key={m.id}
-              className={`rounded-3xl border border-line bg-white ${
+              className={`rounded-[26px] border border-line bg-white ${
                 isCompact
-                  ? "px-3 py-2 sm:px-4 sm:py-2.5"
-                  : "px-4 py-3 sm:px-5 sm:py-4"
-              } shadow-[0_8px_24px_rgba(15,23,42,0.04)] transition hover:shadow-[0_16px_40px_rgba(15,23,42,0.06)]`}
+                  ? "px-4 py-3 sm:px-5 sm:py-3.5"
+                  : "px-5 py-4 sm:px-6 sm:py-5"
+              } shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]`}
             >
               {/* Ligne principale */}
               <div
-                className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${
-                  isCompact ? "" : "gap-3"
-                }`}
+                className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between`}
               >
                 {/* Heure + ligue */}
-                <div className="flex items-center gap-3 text-xs text-fg-muted w-full sm:w-44">
+                <div className="flex items-center gap-3 text-xs text-fg-muted w-full sm:w-48">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-fg flex items-center gap-1">
                       <Clock className="h-3.5 w-3.5" />
@@ -684,14 +631,14 @@ export default function DashboardClient({
 
                 {/* Équipes + éventuels logos */}
                 <div className="flex-1 text-sm font-medium text-fg text-center sm:text-left">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1 sm:gap-3">
-                    <div className="flex items-center justify-center sm:justify-end gap-1 sm:gap-2 max-w-full sm:max-w-none">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1.5 sm:gap-4">
+                    <div className="flex items-center justify-center sm:justify-end gap-1.5 sm:gap-2 max-w-full sm:max-w-none">
                       {m.homeLogo && (
                         <img
                           src={m.homeLogo}
                           alt={m.home}
                           loading="lazy"
-                          className="h-5 w-5 rounded-full object-contain bg-white/70 border border-slate-200"
+                          className="h-6 w-6 rounded-full object-contain bg-white/70 border border-slate-200"
                         />
                       )}
                       <span className="truncate">{m.home}</span>
@@ -701,271 +648,110 @@ export default function DashboardClient({
                       vs
                     </span>
 
-                    <div className="flex items-center justify-center sm:justify-start gap-1 sm:gap-2 max-w-full sm:max-w-none">
+                    <div className="flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 max-w-full sm:max-w-none">
                       {m.awayLogo && (
                         <img
                           src={m.awayLogo}
                           alt={m.away}
                           loading="lazy"
-                          className="h-5 w-5 rounded-full object-contain bg-white/70 border border-slate-200"
+                          className="h-6 w-6 rounded-full object-contain bg-white/70 border border-slate-200"
                         />
                       )}
                       <span className="truncate">{m.away}</span>
                     </div>
                   </div>
 
-                  {!isCompact && (
-                    <div className="mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-1.5 text-[10px]">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${getRiskColorClasses(
-                          m.importance,
-                        )}`}
-                      >
-                        <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
-                        Risque {getRiskLabel(m.importance)}
+                  {/* Petite info de lieu (optionnelle) */}
+                  {!isCompact && m.venue && (
+                    <div className="mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-1.5 text-[10px] text-fg-subtle">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 bg-bg-soft">
+                        {m.venue}
                       </span>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 bg-bg-soft text-fg-subtle">
-                        {getGoalsProfile(m)}
-                      </span>
-                      {m.venue && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 bg-white text-fg-subtle">
-                          {m.venue}
-                        </span>
-                      )}
                     </div>
                   )}
                 </div>
-
-                {/* Actions rapides (favori + lock) */}
-                <div className="flex items-center justify-end gap-2 text-xs w-full sm:w-32">
-                  <button
-                    type="button"
-                    className={`inline-flex items-center justify-center rounded-full border px-2 py-1 transition ${
-                      isFavorite
-                        ? "border-yellow-400 bg-yellow-50 text-yellow-700"
-                        : "border-line bg-bg-soft text-fg-subtle hover:bg-white"
-                    }`}
-                    onClick={() =>
-                      updatePrediction(m.id, {
-                        favorite: !prediction.favorite,
-                      })
-                    }
-                  >
-                    <Star
-                      className={`h-3.5 w-3.5 ${
-                        isFavorite ? "fill-yellow-400" : "fill-none"
-                      }`}
-                    />
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`inline-flex items-center justify-center rounded-full border px-2 py-1 transition ${
-                      isLocked
-                        ? "border-slate-800 bg-slate-900 text-white"
-                        : "border-line bg-bg-soft text-fg-subtle hover:bg-white"
-                    }`}
-                    onClick={() =>
-                      updatePrediction(m.id, {
-                        locked: !prediction.locked,
-                      })
-                    }
-                  >
-                    {isLocked ? (
-                      <Lock className="h-3.5 w-3.5" />
-                    ) : (
-                      <Unlock className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
               </div>
 
-              {/* Zone PRONO + IA */}
+              {/* Bloc IA uniquement */}
               <div
-                className={`border-t border-line mt-2 pt-2 space-y-3 ${
+                className={`border-t border-line mt-3 pt-3 ${
                   isCompact ? "pt-2 mt-2" : "pt-3 mt-3"
                 }`}
               >
-                {/* Ligne prono */}
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-[11px] font-medium text-fg-muted flex items-center gap-1">
-                    <span>Prono rapide</span>
-                    {prediction.outcome !== "none" && (
-                      <span className="text-fg-subtle">
-                        ({outcomeLabel[prediction.outcome]}
-                        {prediction.locked ? " · verrouillé" : ""})
-                      </span>
-                    )}
-                  </p>
-
-                  <div className="flex flex-wrap gap-2 text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updatePrediction(m.id, { outcome: "home" })
-                      }
-                      className={`px-3 py-1 rounded-full border transition ${
-                        prediction.outcome === "home"
-                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                          : "border-line bg-white text-fg-muted hover:bg-bg-soft"
-                      }`}
-                    >
-                      Domicile
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updatePrediction(m.id, { outcome: "draw" })
-                      }
-                      className={`px-3 py-1 rounded-full border transition ${
-                        prediction.outcome === "draw"
-                          ? "border-sky-500 bg-sky-50 text-sky-700"
-                          : "border-line bg-white text-fg-muted hover:bg-bg-soft"
-                      }`}
-                    >
-                      Nul
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updatePrediction(m.id, { outcome: "away" })
-                      }
-                      className={`px-3 py-1 rounded-full border transition ${
-                        prediction.outcome === "away"
-                          ? "border-orange-500 bg-orange-50 text-orange-700"
-                          : "border-line bg-white text-fg-muted hover:bg-bg-soft"
-                      }`}
-                    >
-                      Extérieur
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updatePrediction(m.id, { outcome: "none" })
-                      }
-                      className="px-3 py-1 rounded-full border border-line bg-bg-soft text-fg-subtle hover:bg-white"
-                    >
-                      Réinitialiser
-                    </button>
-
-                    {!isCompact && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updatePrediction(m.id, {
-                            noteOpen: !prediction.noteOpen,
-                          })
-                        }
-                        className="px-3 py-1 rounded-full border border-line bg-white text-fg-muted hover:bg-bg-soft inline-flex items-center gap-1"
-                      >
-                        <PencilLine className="h-3 w-3" />
-                        Note
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Mode détaillé uniquement : note + IA */}
-                {!isCompact && (
-                  <>
-                    {/* Note perso */}
-                    {prediction.noteOpen && (
-                      <div className="pt-1">
-                        <textarea
-                          rows={2}
-                          placeholder="Tes raisons, contexte, stats clés..."
-                          className="w-full rounded-2xl border border-line bg-bg-soft px-3 py-2 text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30"
-                          value={prediction.note}
-                          onChange={(e) =>
-                            updatePrediction(m.id, {
-                              note: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                    )}
-
-                    {/* Bloc IA / insights */}
-                    <div className="border border-dashed border-line rounded-2xl bg-bg-soft px-3 py-2 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-4 w-4 text-[var(--color-primary)]" />
-                          <p className="text-[11px] font-medium text-fg-muted">
-                            Insights IA (bientôt ZoneStat Pro)
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => loadAiInsight(m)}
-                          className="text-[11px] rounded-full border border-line bg-white px-3 py-1 text-fg-muted hover:bg-bg-soft inline-flex items-center gap-1"
-                          disabled={ai?.loading}
-                        >
-                          {ai?.loading ? (
-                            <>Analyse en cours…</>
-                          ) : (
-                            <>Générer une analyse</>
-                          )}
-                        </button>
-                      </div>
-
-                      {ai?.error && (
-                        <p className="text-[11px] text-rose-600">
-                          {ai.error}
-                        </p>
-                      )}
-
-                      {hasAi && (
-                        <details className="group rounded-xl border border-line bg-white px-3 py-2 text-[11px] text-fg-subtle">
-                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
-                            <span className="font-medium text-fg">
-                              Analyse synthétique du match
-                            </span>
-                            <span className="inline-flex items-center gap-1 text-[10px] text-fg-subtle">
-                              Détail
-                              <ChevronDown className="h-3 w-3 transition group-open:rotate-180" />
-                            </span>
-                          </summary>
-                          <div className="mt-2 space-y-1">
-                            {ai.goalsProfile && (
-                              <p className="text-[11px]">
-                                <span className="font-semibold">
-                                  Profil buts :{" "}
-                                </span>
-                                {ai.goalsProfile}
-                              </p>
-                            )}
-                            {ai.riskLevel && (
-                              <p className="text-[11px]">
-                                <span className="font-semibold">
-                                  Risque global :{" "}
-                                </span>
-                                {ai.riskLevel}
-                              </p>
-                            )}
-                            {ai.suggestedScore && (
-                              <p className="text-[11px]">
-                                <span className="font-semibold">
-                                  Score potentiel :{" "}
-                                </span>
-                                {ai.suggestedScore}
-                              </p>
-                            )}
-                            {ai.confidence && (
-                              <p className="text-[11px]">
-                                {ai.confidence}
-                              </p>
-                            )}
-                            {ai.summary && (
-                              <p className="text-[11px] leading-snug mt-1 whitespace-pre-line">
-                                {ai.summary}
-                              </p>
-                            )}
-                          </div>
-                        </details>
-                      )}
+                <div className="border border-dashed border-line rounded-2xl bg-bg-soft px-3 py-2.5 sm:px-4 sm:py-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-[var(--color-primary)]" />
+                      <p className="text-[11px] font-medium text-fg-muted">
+                        Insights IA (bientôt ZoneStat Pro)
+                      </p>
                     </div>
-                  </>
-                )}
+                    <button
+                      type="button"
+                      onClick={() => loadAiInsight(m)}
+                      className="text-[11px] rounded-full border border-line bg-white px-3 py-1 text-fg-muted hover:bg-bg-soft inline-flex items-center gap-1"
+                      disabled={ai?.loading}
+                    >
+                      {ai?.loading ? <>Analyse en cours…</> : <>Générer une analyse</>}
+                    </button>
+                  </div>
+
+                  {ai?.error && (
+                    <p className="text-[11px] text-rose-600">
+                      {ai.error}
+                    </p>
+                  )}
+
+                  {hasAi && (
+                    <details className="group rounded-xl border border-line bg-white px-3 py-2 text-[11px] text-fg-subtle">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
+                        <span className="font-medium text-fg">
+                          Analyse synthétique du match
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] text-fg-subtle">
+                          Détail
+                          <ChevronDown className="h-3 w-3 transition group-open:rotate-180" />
+                        </span>
+                      </summary>
+                      <div className="mt-2 space-y-1">
+                        {ai.goalsProfile && (
+                          <p className="text-[11px]">
+                            <span className="font-semibold">
+                              Profil buts :{" "}
+                            </span>
+                            {ai.goalsProfile}
+                          </p>
+                        )}
+                        {ai.riskLevel && (
+                          <p className="text-[11px]">
+                            <span className="font-semibold">
+                              Risque global :{" "}
+                            </span>
+                            {ai.riskLevel}
+                          </p>
+                        )}
+                        {ai.suggestedScore && (
+                          <p className="text-[11px]">
+                            <span className="font-semibold">
+                              Score potentiel :{" "}
+                            </span>
+                            {ai.suggestedScore}
+                          </p>
+                        )}
+                        {ai.confidence && (
+                          <p className="text-[11px]">
+                            {ai.confidence}
+                          </p>
+                        )}
+                        {ai.summary && (
+                          <p className="text-[11px] leading-snug mt-1 whitespace-pre-line">
+                            {ai.summary}
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </div>
               </div>
             </article>
           );
