@@ -407,9 +407,9 @@ export default function DashboardClient({
   const visibleMatches = filteredMatches.slice(0, visibleCount);
 
   return (
-    <div className="max-w-6xl mx-auto px-1 sm:px-4 py-6 space-y-8">
+    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-5 space-y-6">
       {/* HEADER */}
-      <header className="space-y-2">
+      <header className="space-y-1.5">
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-fg">
           Matchs du {readableDate}
         </h1>
@@ -421,13 +421,13 @@ export default function DashboardClient({
       </header>
 
       {/* TABS FOOT / TENNIS */}
-      <section>
+      <section className="mt-1">
         <SportsTabs value={sportTab} onChange={setSportTab} />
       </section>
 
       {/* FILTRES */}
-      <section className="space-y-3">
-        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-4">
+      <section className="space-y-2">
+        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-3">
           {/* Recherche */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-fg-muted">
@@ -445,14 +445,14 @@ export default function DashboardClient({
           </div>
 
           {/* Importance */}
-          <div className="space-y-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted flex items-center gap-2">
                   <Filter className="h-3.5 w-3.5" />
                   Filtrer par importance
                 </label>
-                <div className="flex flex-wrap gap-2 text-xs">
+                <div className="flex flex-wrap gap-1.5 text-xs">
                   {(
                     [
                       { key: "all", label: "Tous" },
@@ -479,11 +479,11 @@ export default function DashboardClient({
             </div>
           </div>
         </div>
-        {/* (plus de ligne “Affichage de X sur Y…”) */}
+        {/* plus de ligne “Affichage de X sur Y…” */}
       </section>
 
       {/* LISTE MATCHS + SCROLL INFINI */}
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         {filteredMatches.length === 0 && (
           <div className="text-center text-fg-muted py-10 border border-dashed border-line rounded-2xl bg-bg-soft text-sm">
             Aucun match ne correspond aux filtres.  
@@ -498,14 +498,14 @@ export default function DashboardClient({
           return (
             <article
               key={m.id}
-              className={`rounded-[26px] border border-line bg-white ${
+              className={`mx-2 sm:mx-0 rounded-[26px] border border-line bg-white ${
                 isCompact
                   ? "px-4 py-3 sm:px-5 sm:py-3.5"
                   : "px-5 py-4 sm:px-6 sm:py-5"
               } shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]`}
             >
               {/* Ligne principale */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                 {/* Heure + ligue */}
                 <div className="flex items-center gap-3 text-xs text-fg-muted w-full sm:w-48">
                   <div className="flex flex-col">
@@ -521,10 +521,10 @@ export default function DashboardClient({
                   </div>
                 </div>
 
-                {/* Équipes + logos (sans rond) */}
+                {/* Équipes + logos (sans rond), sur une seule ligne */}
                 <div className="flex-1 text-sm font-medium text-fg text-center sm:text-left">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1.5 sm:gap-4">
-                    <div className="flex items-center justify-center sm:justify-end gap-1.5 sm:gap-2 max-w-full sm:max-w-none">
+                  <div className="flex flex-nowrap items-center justify-center gap-3 sm:gap-4 min-w-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                       {m.homeLogo && (
                         <img
                           src={m.homeLogo}
@@ -533,14 +533,16 @@ export default function DashboardClient({
                           className="h-6 w-6 object-contain"
                         />
                       )}
-                      <span className="truncate">{m.home}</span>
+                      <span className="truncate max-w-[42vw] sm:max-w-none">
+                        {m.home}
+                      </span>
                     </div>
 
-                    <span className="text-[10px] uppercase tracking-[0.15em] text-fg-subtle">
+                    <span className="text-[10px] uppercase tracking-[0.15em] text-fg-subtle flex-shrink-0">
                       vs
                     </span>
 
-                    <div className="flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 max-w-full sm:max-w-none">
+                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                       {m.awayLogo && (
                         <img
                           src={m.awayLogo}
@@ -549,7 +551,9 @@ export default function DashboardClient({
                           className="h-6 w-6 object-contain"
                         />
                       )}
-                      <span className="truncate">{m.away}</span>
+                      <span className="truncate max-w-[42vw] sm:max-w-none">
+                        {m.away}
+                      </span>
                     </div>
                   </div>
 
@@ -565,11 +569,7 @@ export default function DashboardClient({
               </div>
 
               {/* Bloc IA uniquement */}
-              <div
-                className={`border-t border-line mt-3 pt-3 ${
-                  isCompact ? "pt-2 mt-2" : "pt-3 mt-3"
-                }`}
-              >
+              <div className="border-t border-line mt-3 pt-3">
                 <div className="border border-dashed border-line rounded-2xl bg-bg-soft px-3 py-2.5 sm:px-4 sm:py-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
