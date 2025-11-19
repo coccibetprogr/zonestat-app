@@ -407,9 +407,9 @@ export default function DashboardClient({
   const visibleMatches = filteredMatches.slice(0, visibleCount);
 
   return (
-    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-4 space-y-4">
+    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-3 space-y-3">
       {/* HEADER */}
-      <header className="space-y-1.5">
+      <header className="space-y-1">
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-fg">
           Matchs du {readableDate}
         </h1>
@@ -421,13 +421,11 @@ export default function DashboardClient({
       </header>
 
       {/* TABS FOOT / TENNIS */}
-      <section>
-        <SportsTabs value={sportTab} onChange={setSportTab} />
-      </section>
+      <SportsTabs value={sportTab} onChange={setSportTab} />
 
       {/* FILTRES */}
-      <section className="space-y-1.5">
-        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-2.5">
+      <section className="space-y-1">
+        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-2">
           {/* Recherche */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-fg-muted">
@@ -479,11 +477,10 @@ export default function DashboardClient({
             </div>
           </div>
         </div>
-        {/* plus de ligne “Affichage de X sur Y…” */}
       </section>
 
       {/* LISTE MATCHS + SCROLL INFINI */}
-      <section className="space-y-2">
+      <section className="space-y-1.5">
         {filteredMatches.length === 0 && (
           <div className="text-center text-fg-muted py-10 border border-dashed border-line rounded-2xl bg-bg-soft text-sm">
             Aucun match ne correspond aux filtres.  
@@ -498,7 +495,7 @@ export default function DashboardClient({
           return (
             <article
               key={m.id}
-              className={`mx-1 sm:mx-0 rounded-[26px] border border-line bg-white ${
+              className={`rounded-[26px] border border-line bg-white ${
                 isCompact
                   ? "px-4 py-3 sm:px-5 sm:py-3.5"
                   : "px-5 py-4 sm:px-6 sm:py-5"
