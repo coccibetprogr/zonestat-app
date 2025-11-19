@@ -54,12 +54,8 @@ export function proxy(req: NextRequest) {
   // -------------------------
   // 🔒 1) Redirections auth (UX)
   // -------------------------
-  // ⚠️ Ceci n'est qu'un garde UX.
-  // La vraie protection est dans les pages server (supabase.auth.getUser + RLS).
-
   const protectedPrefixes = ["/account", "/pricing"];
 
-  // User NON connecté → pas le droit d'aller sur /account, /account/... ou /pricing, /pricing/...
   if (
     !loggedIn &&
     protectedPrefixes.some(
@@ -70,9 +66,6 @@ export function proxy(req: NextRequest) {
     url.searchParams.set("next", path);
     return NextResponse.redirect(url);
   }
-
-  // On NE bloque plus /login /signup ici
-  // → ces pages gèrent elles-mêmes la redirection si l'utilisateur est déjà connecté.
 
   // -------------------------
   // 2) Ping interne
@@ -112,7 +105,7 @@ export function proxy(req: NextRequest) {
 }
 
 // -------------------------
-// Utilities existants
+// Utilities
 // -------------------------
 
 function generateNonce(): string {
@@ -124,10 +117,10 @@ function buildCsp(nonce: string): string {
     "default-src 'self'",
     // stripe + turnstile déjà autorisés
     `script-src 'self' 'nonce-${nonce}' https://challenges.cloudflare.com https://js.stripe.com`,
-    // 🔐 on autorise aussi l'API-FOOTBALL côté client au cas où tu en aies besoin dans le navigateur
+    // API Supabase / Upstash / Stripe / API-FOOTBALL
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://challenges.cloudflare.com https://*.upstash.io wss://*.upstash.io https://*.api-sports.io",
-    // 🔐 ICI : on autorise les logos API-FOOTBALL (media.api-sports.io & co) en plus de Supabase
-    "img-src 'self' data: blob: https://*.supabase.co https://*.api-sports.io",
+    // ✅ Logos : Supabase + API-FOOTBALL (wildcard + hosts explicites par sécurité)
+    "img-src 'self' data: blob: https://*.supabase.co https://*.api-sports.io https://media.api-sports.io https://media-1.api-sports.io https://media-2.api-sports.io https://media-3.api-sports.io",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://checkout.stripe.com https://billing.stripe.com",
@@ -201,12 +194,15 @@ function applySecurityHeaders(
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("X-Frame-Options", "DENY");
   res.headers.set("Permissions-Policy", PERMISSIONS_POLICY);
+
+  // ✅ On garde COOP, mais on DÉTEND CORP et on enlève COEP pour ne pas bloquer les images externes
   res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-  res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  res.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+
   res.headers.set("Origin-Agent-Cluster", "?1");
 
   if (isProd) {
-    res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    // Plus de COEP: require-corp → ça bloquait les ressources externes (logos)
     res.headers.set(
       "Strict-Transport-Security",
       "max-age=31536000; includeSubDomains; preload",
@@ -252,5 +248,7 @@ function getClientIp(req: NextRequest): string | null {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)",
+  ],
 };
