@@ -407,7 +407,7 @@ export default function DashboardClient({
   const visibleMatches = filteredMatches.slice(0, visibleCount);
 
   return (
-    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-5 space-y-6">
+    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-4 space-y-4">
       {/* HEADER */}
       <header className="space-y-1.5">
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-fg">
@@ -421,13 +421,13 @@ export default function DashboardClient({
       </header>
 
       {/* TABS FOOT / TENNIS */}
-      <section className="mt-1">
+      <section>
         <SportsTabs value={sportTab} onChange={setSportTab} />
       </section>
 
       {/* FILTRES */}
-      <section className="space-y-2">
-        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-3">
+      <section className="space-y-1.5">
+        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-2.5">
           {/* Recherche */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-fg-muted">
@@ -483,7 +483,7 @@ export default function DashboardClient({
       </section>
 
       {/* LISTE MATCHS + SCROLL INFINI */}
-      <section className="space-y-2.5">
+      <section className="space-y-2">
         {filteredMatches.length === 0 && (
           <div className="text-center text-fg-muted py-10 border border-dashed border-line rounded-2xl bg-bg-soft text-sm">
             Aucun match ne correspond aux filtres.  
@@ -498,14 +498,14 @@ export default function DashboardClient({
           return (
             <article
               key={m.id}
-              className={`mx-2 sm:mx-0 rounded-[26px] border border-line bg-white ${
+              className={`mx-1 sm:mx-0 rounded-[26px] border border-line bg-white ${
                 isCompact
                   ? "px-4 py-3 sm:px-5 sm:py-3.5"
                   : "px-5 py-4 sm:px-6 sm:py-5"
               } shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]`}
             >
               {/* Ligne principale */}
-              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 {/* Heure + ligue */}
                 <div className="flex items-center gap-3 text-xs text-fg-muted w-full sm:w-48">
                   <div className="flex flex-col">
