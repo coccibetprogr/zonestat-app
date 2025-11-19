@@ -213,15 +213,14 @@ export default function DashboardClient({
 }: DashboardClientProps) {
   const [search, setSearch] = useState<string>("");
   const [importance, setImportance] = useState<"all" | Importance>("all");
-  const [predictions] = useState<Record<string, UserPrediction>>({});
   const [aiInsights, setAiInsights] = useState<Record<string, AiInsight>>({});
   const [visibleCount, setVisibleCount] = useState<number>(20);
-  const [viewMode, setViewMode] = useState<"detailed" | "compact">("detailed");
   const [sportTab, setSportTab] = useState<SportTabId>("for-you");
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const isCompact = viewMode === "compact";
+  // Mode unique : détaillé
+  const isCompact = false;
 
   // ✅ Normalisation des matchs (on ne filtre plus les matchs passés)
   const items: EnrichedMatch[] = useMemo(
@@ -298,25 +297,6 @@ export default function DashboardClient({
   }, [date]);
 
   const totalMatches = items.length;
-
-  const predictedCount = useMemo(
-    () =>
-      Object.values(predictions).filter(
-        (p) => p.outcome !== "none" || p.note.trim().length > 0,
-      ).length,
-    [predictions],
-  );
-
-  const favoriteCount = useMemo(
-    () =>
-      Object.values(predictions).filter((p) => p.favorite).length,
-    [predictions],
-  );
-
-  const highImportanceCount = useMemo(
-    () => items.filter((m) => m.importance === "high").length,
-    [items],
-  );
 
   // Heuristiques UI : risk + goals profile pour l’IA
   function getRiskLabel(importance: Importance): string {
@@ -427,54 +407,17 @@ export default function DashboardClient({
   const visibleMatches = filteredMatches.slice(0, visibleCount);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10 space-y-10">
-      {/* HEADER PREMIUM */}
-      <header className="space-y-4">
-        <div className="inline-flex items-center gap-2 rounded-full border border-line bg-bg-soft px-4 py-1.5 text-xs uppercase tracking-widest">
-          <div className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
-          <span>Dashboard du jour</span>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-fg">
-              Matchs du {readableDate}
-            </h1>
-            <p className="text-sm text-fg-muted">
-              {totalMatches} match
-              {totalMatches > 1 ? "s" : ""} analysé
-              {totalMatches > 1 ? "s" : ""} par le moteur ZoneStat.
-            </p>
-          </div>
-
-          {/* Stat bar */}
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-2xl border border-line bg-bg-soft px-3 py-2 text-center">
-              <p className="text-[10px] uppercase tracking-wide text-fg-subtle">
-                Gros matchs
-              </p>
-              <p className="mt-1 text-sm font-semibold text-fg">
-                {highImportanceCount}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-line bg-bg-soft px-3 py-2 text-center">
-              <p className="text-[10px] uppercase tracking-wide text-fg-subtle">
-                Pronos posés
-              </p>
-              <p className="mt-1 text-sm font-semibold text-fg">
-                {predictedCount}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-line bg-bg-soft px-3 py-2 text-center">
-              <p className="text-[10px] uppercase tracking-wide text-fg-subtle">
-                Favoris
-              </p>
-              <p className="mt-1 text-sm font-semibold text-fg">
-                {favoriteCount}
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto px-1 sm:px-4 py-6 space-y-8">
+      {/* HEADER */}
+      <header className="space-y-2">
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-fg">
+          Matchs du {readableDate}
+        </h1>
+        <p className="text-sm text-fg-muted">
+          {totalMatches} match
+          {totalMatches > 1 ? "s" : ""} analysé
+          {totalMatches > 1 ? "s" : ""} par le moteur ZoneStat.
+        </p>
       </header>
 
       {/* TABS FOOT / TENNIS */}
@@ -482,7 +425,7 @@ export default function DashboardClient({
         <SportsTabs value={sportTab} onChange={setSportTab} />
       </section>
 
-      {/* FILTRES + MODE AFFICHAGE */}
+      {/* FILTRES */}
       <section className="space-y-3">
         <div className="grid sm:grid-cols-[2fr,1.6fr] gap-4">
           {/* Recherche */}
@@ -501,7 +444,7 @@ export default function DashboardClient({
             </div>
           </div>
 
-          {/* Importance + mode d’affichage */}
+          {/* Importance */}
           <div className="space-y-2">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
@@ -533,59 +476,10 @@ export default function DashboardClient({
                   ))}
                 </div>
               </div>
-
-              {/* Toggle d’affichage */}
-              <div className="space-y-1">
-                <p className="text-[11px] text-fg-subtle">
-                  Mode d’affichage
-                </p>
-                <div className="inline-flex rounded-full border border-line bg-bg-soft p-0.5 text-[11px]">
-                  <button
-                    type="button"
-                    className={`px-3 py-1 rounded-full transition ${
-                      viewMode === "detailed"
-                        ? "bg-white text-fg font-medium shadow-sm"
-                        : "text-fg-subtle"
-                    }`}
-                    onClick={() => setViewMode("detailed")}
-                  >
-                    D&eacute;taill&eacute;
-                  </button>
-                  <button
-                    type="button"
-                    className={`px-3 py-1 rounded-full transition ${
-                      viewMode === "compact"
-                        ? "bg-white text-fg font-medium shadow-sm"
-                        : "text-fg-subtle"
-                    }`}
-                    onClick={() => setViewMode("compact")}
-                  >
-                    Compact
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
-
-        {/* Info sur le nombre visible */}
-        {filteredMatches.length > 0 && (
-          <p className="text-[11px] text-fg-subtle">
-            Affichage de{" "}
-            <span className="font-medium text-fg">
-              {visibleMatches.length}
-            </span>{" "}
-            sur{" "}
-            <span className="font-medium text-fg">
-              {filteredMatches.length}
-            </span>{" "}
-            matchs · Mode{" "}
-            <span className="font-medium text-fg">
-              {viewMode === "detailed" ? "détaillé" : "compact"}
-            </span>
-            .
-          </p>
-        )}
+        {/* (plus de ligne “Affichage de X sur Y…”) */}
       </section>
 
       {/* LISTE MATCHS + SCROLL INFINI */}
@@ -611,9 +505,7 @@ export default function DashboardClient({
               } shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]`}
             >
               {/* Ligne principale */}
-              <div
-                className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between`}
-              >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {/* Heure + ligue */}
                 <div className="flex items-center gap-3 text-xs text-fg-muted w-full sm:w-48">
                   <div className="flex flex-col">
@@ -629,7 +521,7 @@ export default function DashboardClient({
                   </div>
                 </div>
 
-                {/* Équipes + éventuels logos */}
+                {/* Équipes + logos (sans rond) */}
                 <div className="flex-1 text-sm font-medium text-fg text-center sm:text-left">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1.5 sm:gap-4">
                     <div className="flex items-center justify-center sm:justify-end gap-1.5 sm:gap-2 max-w-full sm:max-w-none">
@@ -638,7 +530,7 @@ export default function DashboardClient({
                           src={m.homeLogo}
                           alt={m.home}
                           loading="lazy"
-                          className="h-6 w-6 rounded-full object-contain bg-white/70 border border-slate-200"
+                          className="h-6 w-6 object-contain"
                         />
                       )}
                       <span className="truncate">{m.home}</span>
@@ -654,14 +546,14 @@ export default function DashboardClient({
                           src={m.awayLogo}
                           alt={m.away}
                           loading="lazy"
-                          className="h-6 w-6 rounded-full object-contain bg-white/70 border border-slate-200"
+                          className="h-6 w-6 object-contain"
                         />
                       )}
                       <span className="truncate">{m.away}</span>
                     </div>
                   </div>
 
-                  {/* Petite info de lieu (optionnelle) */}
+                  {/* Lieu (optionnel) */}
                   {!isCompact && m.venue && (
                     <div className="mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-1.5 text-[10px] text-fg-subtle">
                       <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 bg-bg-soft">
