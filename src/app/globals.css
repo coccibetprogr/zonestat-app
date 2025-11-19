@@ -17,13 +17,13 @@
   --color-fg-muted: #4B5563;
   --color-fg-subtle: #6B7280;
 
-  /* Accents */
-  --color-primary: #10B981;
-  --color-primary-hover: #0EA371;
+  /* Accents — DA BLEUE */
+  --color-primary: #374bd3;           /* Bleu ZoneStat */
+  --color-primary-hover: #2334a8;     /* Bleu foncé hover */
   --color-info: #3B82F6;
   --color-warning: #FACC15;
   --color-danger: #EF4444;
-  --color-success: #16A34A;
+  --color-success: #374bd3;           /* harmonisation — plus de vert */
 
   /* Rayons & ombres */
   --radius-md: 8px;
@@ -42,7 +42,18 @@ body {
 }
 a { color: inherit; text-decoration: none; transition: color .2s ease; }
 a:hover { color: var(--color-primary); }
-*:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(16,185,129,0.3); border-radius: 6px; }
+
+/* Empêche le changement de couleur au hover pour certains liens (logo header) */
+.no-hover-color:hover {
+  color: inherit;
+}
+
+/* FOCUS BLEU */
+*:focus-visible { 
+  outline: none; 
+  box-shadow: 0 0 0 3px rgba(42,63,201,0.35); 
+  border-radius: 6px; 
+}
 
 /* ————— Layout helpers ————— */
 .container-page { @apply container max-w-[1200px] px-4; }
@@ -107,14 +118,16 @@ section {
 }
 .btn:active { transform: translateY(1px); }
 
+/* BOUTON PRIMARY — BLEU */
 .btn-primary {
   background: var(--color-primary);
   color: #fff;
   border: 1px solid transparent;
-  box-shadow: 0 4px 10px rgba(16,185,129,0.25);
+  box-shadow: 0 4px 10px rgba(42,63,201,0.25);
 }
 .btn-primary:hover { background: var(--color-primary-hover); }
 
+/* BOUTON GHOST */
 .btn-ghost {
   background: var(--color-bg-soft);
   border: 1px solid var(--color-line);
@@ -131,15 +144,17 @@ section {
   @apply w-full h-11 rounded-lg px-3 text-[0.95rem] bg-bg-soft border border-line text-fg-base transition;
 }
 .input::placeholder { color: var(--color-fg-subtle); }
+
+/* INPUT FOCUS BLEU */
 .input:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(16,185,129,0.2);
+  box-shadow: 0 0 0 3px rgba(42,63,201,0.25);
 }
 
 /* ————— Feedbacks ————— */
 .message { @apply text-sm mt-1; }
 .message--error { color: var(--color-danger); }
-.message--success { color: var(--color-success); }
+.message--success { color: var(--color-primary); }
 .message--info { color: var(--color-info); }
 
 /* ————— Captcha ————— */

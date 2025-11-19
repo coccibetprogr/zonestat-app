@@ -10,8 +10,10 @@ export default function FakeDashboard() {
           <h3 className="text-lg font-semibold">Aperçu du tableau de bord</h3>
           <p className="text-sm text-fg-subtle">Aperçu visuel du style ZoneStat</p>
         </div>
+
+        {/* Live Sync → couleur bleue au lieu du vert */}
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-emerald-500" />
+          <div className="h-2 w-2 rounded-full bg-[var(--color-primary)]" />
           <span className="text-xs text-fg-muted">Live Sync</span>
         </div>
       </div>
@@ -49,11 +51,17 @@ export default function FakeDashboard() {
                 <td className="p-3 font-medium">Équipe A vs Équipe B</td>
                 <td className="p-3">
                   <div className="h-1.5 bg-fg-muted/20 rounded-full overflow-hidden">
+                    {/* barre bleue au lieu de la barre verte */}
                     <div className="h-full bg-[var(--color-primary)] w-1/2" />
                   </div>
                 </td>
+
                 <td className="p-3">⚽ 3 / 5</td>
-                <td className="p-3 text-[var(--color-primary)] font-medium">👍 Léger avantage</td>
+
+                {/* texte bleu au lieu du vert */}
+                <td className="p-3 text-[var(--color-primary)] font-medium">
+                  👍 Léger avantage
+                </td>
               </tr>
             ))}
           </tbody>

@@ -122,9 +122,12 @@ function generateNonce(): string {
 function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
+    // stripe + turnstile déjà autorisés
     `script-src 'self' 'nonce-${nonce}' https://challenges.cloudflare.com https://js.stripe.com`,
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://challenges.cloudflare.com https://*.upstash.io wss://*.upstash.io",
-    "img-src 'self' data: blob: https://*.supabase.co",
+    // 🔐 on autorise aussi l'API-FOOTBALL côté client au cas où tu en aies besoin dans le navigateur
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://challenges.cloudflare.com https://*.upstash.io wss://*.upstash.io https://*.api-sports.io",
+    // 🔐 ICI : on autorise les logos API-FOOTBALL (media.api-sports.io & co) en plus de Supabase
+    "img-src 'self' data: blob: https://*.supabase.co https://*.api-sports.io",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://checkout.stripe.com https://billing.stripe.com",

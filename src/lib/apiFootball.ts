@@ -21,8 +21,8 @@ export type ApiFootballFixture = {
     country: string;
   };
   teams: {
-    home: { id: number; name: string };
-    away: { id: number; name: string };
+    home: { id: number; name: string; logo?: string | null };
+    away: { id: number; name: string; logo?: string | null };
   };
   goals: {
     home: number | null;

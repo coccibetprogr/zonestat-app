@@ -9,7 +9,9 @@ export type MatchInsight = {
   league: string;
   kickoff: string;
   homeTeam: string;
+  homeLogo?: string | null;
   awayTeam: string;
+  awayLogo?: string | null;
   tags: string[];
   note: string;
   riskLevel: RiskLevel;
@@ -37,7 +39,11 @@ function simpleProbFromLeague(leagueName: string): {
     return { over15: 80, over25: 65, btts: 60 };
   }
 
-  if (ln.includes("ligue 1") || ln.includes("la liga") || ln.includes("serie a")) {
+  if (
+    ln.includes("ligue 1") ||
+    ln.includes("la liga") ||
+    ln.includes("serie a")
+  ) {
     return { over15: 75, over25: 58, btts: 55 };
   }
 
@@ -49,13 +55,21 @@ function computeRiskLevelFromLeague(leagueName: string): RiskLevel {
   if (ln.includes("ligue 2") || ln.includes("championship")) {
     return "high";
   }
-  if (ln.includes("premier league") || ln.includes("la liga") || ln.includes("serie a")) {
+  if (
+    ln.includes("premier league") ||
+    ln.includes("la liga") ||
+    ln.includes("serie a")
+  ) {
     return "medium";
   }
   return "low";
 }
 
-function buildTags(f: ApiFootballFixture, over25Prob: number, bttsProb: number): string[] {
+function buildTags(
+  f: ApiFootballFixture,
+  over25Prob: number,
+  bttsProb: number,
+): string[] {
   const tags: string[] = [];
 
   if (over25Prob >= 65) tags.push("Match potentiellement ouvert");
@@ -67,7 +81,11 @@ function buildTags(f: ApiFootballFixture, over25Prob: number, bttsProb: number):
   return tags.slice(0, 3);
 }
 
-function buildNote(f: ApiFootballFixture, over25Prob: number, risk: RiskLevel): string {
+function buildNote(
+  f: ApiFootballFixture,
+  over25Prob: number,
+  risk: RiskLevel,
+): string {
   const home = f.teams.home.name;
   const away = f.teams.away.name;
 
@@ -104,7 +122,9 @@ export async function generateAndStoreDashboardForDate(dateStr: string) {
       league: `${f.league.name} (${f.league.country})`,
       kickoff: f.fixture.date,
       homeTeam: f.teams.home.name,
+      homeLogo: f.teams.home.logo ?? null,
       awayTeam: f.teams.away.name,
+      awayLogo: f.teams.away.logo ?? null,
       tags,
       note,
       riskLevel,
