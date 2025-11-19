@@ -8,7 +8,6 @@ import {
 } from "react";
 import {
   Search,
-  Filter,
   Clock,
   Sparkles,
   ChevronDown,
@@ -212,7 +211,7 @@ export default function DashboardClient({
   matches,
 }: DashboardClientProps) {
   const [search, setSearch] = useState<string>("");
-  const [importance, setImportance] = useState<"all" | Importance>("all");
+  const [importance] = useState<"all" | Importance>("all");
   const [aiInsights, setAiInsights] = useState<Record<string, AiInsight>>({});
   const [visibleCount, setVisibleCount] = useState<number>(20);
   const [sportTab, setSportTab] = useState<SportTabId>("for-you");
@@ -241,7 +240,7 @@ export default function DashboardClient({
         return false;
       }
 
-      // 2) filtre par importance
+      // 2) filtre par importance (reste fonctionnel mais toujours "all")
       if (importance !== "all" && m.importance !== importance) {
         return false;
       }
@@ -423,58 +422,20 @@ export default function DashboardClient({
       {/* TABS FOOT / TENNIS */}
       <SportsTabs value={sportTab} onChange={setSportTab} />
 
-      {/* FILTRES */}
+      {/* FILTRE RECHERCHE UNIQUEMENT */}
       <section className="space-y-1">
-        <div className="grid sm:grid-cols-[2fr,1.6fr] gap-2">
-          {/* Recherche */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-fg-muted">
-              Recherche rapide
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle h-4 w-4" />
-              <input
-                className="w-full bg-white border border-line rounded-full pl-10 pr-3 py-2 text-sm text-fg placeholder:text-fg-subtle shadow-[0_0_0_1px_rgba(15,23,42,0.02)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]"
-                placeholder="PSG, Premier League, Milan..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Importance */}
-          <div className="space-y-1">
-            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted flex items-center gap-2">
-                  <Filter className="h-3.5 w-3.5" />
-                  Filtrer par importance
-                </label>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  {(
-                    [
-                      { key: "all", label: "Tous" },
-                      { key: "high", label: "Gros matchs" },
-                      { key: "medium", label: "Intéressants" },
-                      { key: "low", label: "Secondaires" },
-                    ] as { key: "all" | Importance; label: string }[]
-                  ).map((btn) => (
-                    <button
-                      key={btn.key}
-                      type="button"
-                      className={`px-3 py-1 rounded-full border transition text-xs ${
-                        importance === btn.key
-                          ? "border-[var(--color-primary)] text-[var(--color-primary)] bg-[var(--color-primary)]/5"
-                          : "border-line text-fg-muted bg-white hover:bg-bg-soft"
-                      }`}
-                      onClick={() => setImportance(btn.key)}
-                    >
-                      {btn.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-fg-muted">
+            Recherche rapide
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle h-4 w-4" />
+            <input
+              className="w-full bg-white border border-line rounded-full pl-10 pr-3 py-2 text-sm text-fg placeholder:text-fg-subtle shadow-[0_0_0_1px_rgba(15,23,42,0.02)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]"
+              placeholder="PSG, Premier League, Milan..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
         </div>
       </section>
