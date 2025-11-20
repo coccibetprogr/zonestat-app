@@ -4,13 +4,18 @@ const API_KEY = process.env.API_FOOTBALL_API_KEY;
 const API_BASE_URL =
   process.env.API_FOOTBALL_BASE_URL ?? "https://v3.football.api-sports.io";
 const API_TIMEZONE = process.env.API_FOOTBALL_TIMEZONE ?? "Europe/Paris";
+const API_SEASON =
+  process.env.API_FOOTBALL_SEASON ?? new Date().getFullYear().toString();
 
 const LEAGUES_FILTER = (process.env.API_FOOTBALL_LEAGUES ?? "")
   .split(",")
   .map((x) => x.trim())
   .filter(Boolean);
 
-function buildUrl(path: string, params: Record<string, string | number | undefined> = {}) {
+function buildUrl(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+) {
   const url = new URL(path, API_BASE_URL);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null) {
@@ -20,7 +25,10 @@ function buildUrl(path: string, params: Record<string, string | number | undefin
   return url.toString();
 }
 
-async function apiGet(path: string, params: Record<string, string | number | undefined> = {}) {
+async function apiGet(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+) {
   if (!API_KEY) {
     console.warn("[apiFootball] API_FOOTBALL_API_KEY manquante");
     return null;
@@ -43,7 +51,7 @@ async function apiGet(path: string, params: Record<string, string | number | und
   }
 
   const json = await res.json();
-  return json?.response ?? [];
+  return json?.response ?? null;
 }
 
 /* ============================================================
@@ -59,6 +67,7 @@ export type ApiFootballFixture = {
     id: number;
     name: string;
     country: string;
+    season?: number;
   };
   teams: {
     home: { id: number; name: string; logo?: string | null };
@@ -82,7 +91,7 @@ export async function fetchFixturesByDate(
     timezone: API_TIMEZONE,
   });
 
-  if (!response) return [];
+  if (!response || !Array.isArray(response)) return [];
 
   const data = response as ApiFootballFixture[];
 
@@ -94,10 +103,10 @@ export async function fetchFixturesByDate(
 }
 
 /* ============================================================
-   FETCH — STATS / FORM / H2H POUR UN FIXTURE
+   BLOCS STATS / FORME / H2H POUR UN MATCH
 ============================================================ */
 
-type StatsBlock = {
+export type StatsBlock = {
   xg_home: number;
   xg_away: number;
   shots_home: number;
@@ -106,7 +115,7 @@ type StatsBlock = {
   shots_on_target_away: number;
 };
 
-type FormBlock = {
+export type FormBlock = {
   home_last5: string[];
   away_last5: string[];
   home_goals_scored: number;
@@ -117,7 +126,7 @@ type FormBlock = {
   away_xg_last5: number;
 };
 
-type H2HBlock = {
+export type H2HBlock = {
   results: Array<{
     date: string;
     score: string;
@@ -147,7 +156,9 @@ function getNumberStat(row: any, type: string): number {
   return 0;
 }
 
-async function fetchFixtureStatistics(fixtureId: number | string): Promise<StatsBlock | null> {
+async function fetchFixtureStatistics(
+  fixtureId: number | string,
+): Promise<StatsBlock | null> {
   const response = await apiGet("/fixtures/statistics", {
     fixture: fixtureId,
   });
@@ -164,9 +175,8 @@ async function fetchFixtureStatistics(fixtureId: number | string): Promise<Stats
   const shots_on_target_home = getNumberStat(homeRow, "Shots on Goal");
   const shots_on_target_away = getNumberStat(awayRow, "Shots on Goal");
 
-  // API-FOOTBALL ne fournit pas les xG natifs → on laisse à 0 pour l’instant
   return {
-    xg_home: 0,
+    xg_home: 0, // pas dispo dans API-FOOTBALL
     xg_away: 0,
     shots_home,
     shots_away,
@@ -221,11 +231,14 @@ async function fetchTeamLastFixtures(teamId: number): Promise<TeamFormResult> {
     last5,
     goals_scored,
     goals_conceded,
-    xg_last5: 0, // pas d’xG disponible → à enrichir plus tard via autre source
+    xg_last5: 0,
   };
 }
 
-async function fetchHeadToHead(homeTeamId: number, awayTeamId: number): Promise<H2HBlock | null> {
+async function fetchHeadToHead(
+  homeTeamId: number,
+  awayTeamId: number,
+): Promise<H2HBlock | null> {
   const response = await apiGet("/fixtures/headtohead", {
     h2h: `${homeTeamId}-${awayTeamId}`,
     last: 5,
@@ -280,10 +293,120 @@ async function fetchHeadToHead(homeTeamId: number, awayTeamId: number): Promise<
   };
 }
 
-/**
- * Fonction principale utilisée par le cron :
- * renvoie stats + forme + h2h pour un match donné.
- */
+/* ============================================================
+   STATS SAISON PAR ÉQUIPE & CLASSEMENT
+============================================================ */
+
+export type TeamSeasonStats = {
+  goals_for_avg: number;
+  goals_against_avg: number;
+  matches_played: number;
+  clean_sheet_percent: number;
+  failed_to_score_percent: number;
+  wins: number;
+  draws: number;
+  losses: number;
+};
+
+export type LeagueStandingRow = {
+  teamId: number;
+  rank: number;
+  points: number;
+  goals_diff: number;
+  form?: string | null;
+};
+
+export async function fetchTeamSeasonStats(
+  teamId: number,
+  leagueId: number,
+  season?: number,
+): Promise<TeamSeasonStats | null> {
+  const response = await apiGet("/teams/statistics", {
+    team: teamId,
+    league: leagueId,
+    season: season ?? API_SEASON,
+  });
+
+  if (!response) return null;
+
+  const data = response as any;
+
+  const fixtures = data.fixtures;
+  const goals = data.goals;
+  const cleanSheet = data.clean_sheet;
+  const failedToScore = data.failed_to_score;
+
+  if (!fixtures || !goals) return null;
+
+  const playedTotal = fixtures.played?.total ?? 0;
+
+  const gfAvgStr = goals.for?.average?.total ?? "0";
+  const gaAvgStr = goals.against?.average?.total ?? "0";
+
+  const goals_for_avg = parseFloat(gfAvgStr) || 0;
+  const goals_against_avg = parseFloat(gaAvgStr) || 0;
+
+  const wins = fixtures.wins?.total ?? 0;
+  const draws = fixtures.draws?.total ?? 0;
+  const losses = fixtures.loses?.total ?? 0;
+
+  const cleanTotal = cleanSheet?.total ?? 0;
+  const failedTotal = failedToScore?.total ?? 0;
+
+  const clean_sheet_percent =
+    playedTotal > 0 ? Math.round((cleanTotal / playedTotal) * 100) : 0;
+  const failed_to_score_percent =
+    playedTotal > 0 ? Math.round((failedTotal / playedTotal) * 100) : 0;
+
+  return {
+    goals_for_avg,
+    goals_against_avg,
+    matches_played: playedTotal,
+    clean_sheet_percent,
+    failed_to_score_percent,
+    wins,
+    draws,
+    losses,
+  };
+}
+
+export async function fetchLeagueStandings(
+  leagueId: number,
+  season?: number,
+): Promise<LeagueStandingRow[] | null> {
+  const response = await apiGet("/standings", {
+    league: leagueId,
+    season: season ?? API_SEASON,
+  });
+
+  if (!response || !Array.isArray(response) || response.length === 0) {
+    return null;
+  }
+
+  const leagueData = (response as any[])[0]?.league;
+
+  const groups = leagueData?.standings;
+  if (!groups || !Array.isArray(groups) || groups.length === 0) {
+    return null;
+  }
+
+  const table = groups[0] as any[];
+
+  const rows: LeagueStandingRow[] = table.map((row: any) => ({
+    teamId: row.team?.id,
+    rank: row.rank ?? 0,
+    points: row.points ?? 0,
+    goals_diff: row.goalsDiff ?? 0,
+    form: row.form ?? null,
+  }));
+
+  return rows;
+}
+
+/* ============================================================
+   FONCTION PRINCIPALE MATCH EXTRA (stats/form/h2h)
+============================================================ */
+
 export async function fetchStatsForFixture(params: {
   fixtureId: number | string;
   homeTeamId: number;

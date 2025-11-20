@@ -4,11 +4,24 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   fetchFixturesByDate,
   fetchStatsForFixture,
+  fetchTeamSeasonStats,
+  fetchLeagueStandings,
   type ApiFootballFixture,
   type MatchExtraData,
+  type TeamSeasonStats,
+  type LeagueStandingRow,
 } from "@/lib/apiFootball";
 
 export type RiskLevel = "low" | "medium" | "high";
+
+export type TeamSeasonProfile = TeamSeasonStats;
+
+export type TeamStandingProfile = {
+  rank: number;
+  points: number;
+  goals_diff: number;
+  form?: string | null;
+};
 
 export type MatchFull = {
   id: string;
@@ -31,6 +44,12 @@ export type MatchFull = {
   stats?: MatchExtraData["stats"] | null;
   form?: MatchExtraData["form"] | null;
   h2h?: MatchExtraData["h2h"] | null;
+
+  homeSeason?: TeamSeasonProfile | null;
+  awaySeason?: TeamSeasonProfile | null;
+
+  homeStanding?: TeamStandingProfile | null;
+  awayStanding?: TeamStandingProfile | null;
 
   predictions?: {
     homeWinProb: number;
@@ -171,18 +190,75 @@ export async function generateAndStoreDashboardForDate(dateStr: string) {
 
   const matches: MatchFull[] = [];
 
+  // caches pour limiter les appels API
+  const teamSeasonCache = new Map<string, TeamSeasonStats | null>();
+  const leagueStandingsCache = new Map<string, LeagueStandingRow[] | null>();
+
   for (const f of fixtures) {
+    const leagueId = f.league.id;
+    const season = f.league.season;
+
+    const leagueKey = `${leagueId}-${season ?? "current"}`;
+
+    // helpers internes avec cache
+    const getStandings = async () => {
+      if (!leagueStandingsCache.has(leagueKey)) {
+        const s = await fetchLeagueStandings(leagueId, season);
+        leagueStandingsCache.set(leagueKey, s);
+      }
+      return leagueStandingsCache.get(leagueKey) ?? null;
+    };
+
+    const getTeamSeason = async (teamId: number) => {
+      const key = `${leagueKey}-${teamId}`;
+      if (!teamSeasonCache.has(key)) {
+        const s = await fetchTeamSeasonStats(teamId, leagueId, season);
+        teamSeasonCache.set(key, s);
+      }
+      return teamSeasonCache.get(key) ?? null;
+    };
+
     const probs = simpleProbFromLeague(f.league.name);
     const riskLevel = computeRiskLevelFromLeague(f.league.name);
     const tags = buildTags(f, probs.over25, probs.btts);
     const note = buildNote(f, probs.over25, riskLevel);
 
-    // 🔥 Récupération des vraies stats / forme / H2H via API-FOOTBALL
-    const extra = await fetchStatsForFixture({
-      fixtureId: f.fixture.id,
-      homeTeamId: f.teams.home.id,
-      awayTeamId: f.teams.away.id,
-    });
+    const [extra, standings, homeSeason, awaySeason] = await Promise.all([
+      fetchStatsForFixture({
+        fixtureId: f.fixture.id,
+        homeTeamId: f.teams.home.id,
+        awayTeamId: f.teams.away.id,
+      }),
+      getStandings(),
+      getTeamSeason(f.teams.home.id),
+      getTeamSeason(f.teams.away.id),
+    ]);
+
+    let homeStanding: TeamStandingProfile | null = null;
+    let awayStanding: TeamStandingProfile | null = null;
+
+    if (standings && standings.length > 0) {
+      const homeRow = standings.find((r) => r.teamId === f.teams.home.id);
+      const awayRow = standings.find((r) => r.teamId === f.teams.away.id);
+
+      if (homeRow) {
+        homeStanding = {
+          rank: homeRow.rank,
+          points: homeRow.points,
+          goals_diff: homeRow.goals_diff,
+          form: homeRow.form ?? null,
+        };
+      }
+
+      if (awayRow) {
+        awayStanding = {
+          rank: awayRow.rank,
+          points: awayRow.points,
+          goals_diff: awayRow.goals_diff,
+          form: awayRow.form ?? null,
+        };
+      }
+    }
 
     const baseMatch: MatchFull = {
       id: String(f.fixture.id),
@@ -201,6 +277,10 @@ export async function generateAndStoreDashboardForDate(dateStr: string) {
       stats: extra.stats,
       form: extra.form,
       h2h: extra.h2h,
+      homeSeason,
+      awaySeason,
+      homeStanding,
+      awayStanding,
     };
 
     const predictions = computeSimpleIA({
@@ -229,7 +309,7 @@ export async function generateAndStoreDashboardForDate(dateStr: string) {
         date: dateStr,
         data: payload,
         generated_at: new Date().toISOString(),
-        generation_notes: `Généré automatiquement pour ${dateStr} avec API-FOOTBALL & IA simple`,
+        generation_notes: `Généré automatiquement pour ${dateStr} avec API-FOOTBALL (stats + forme + H2H + saison + classement) & IA simple`,
       },
       { onConflict: "date" },
     );
