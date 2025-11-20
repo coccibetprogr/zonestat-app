@@ -11,6 +11,13 @@ type ProfileRow = {
   free_until: string | null;
 };
 
+type DashboardRow = {
+  date: string;
+  data: {
+    matches?: any[];
+  } | null;
+};
+
 function canAccessPremiumFromProfile(profile: ProfileRow | null): boolean {
   if (!profile) return false;
 
@@ -148,6 +155,8 @@ export default async function MatchPage(props: {
 }) {
   const { id } = await props.params;
 
+  console.log("[match] start", { matchId: id });
+
   const supabase = await serverClient();
 
   const {
@@ -160,8 +169,11 @@ export default async function MatchPage(props: {
   }
 
   if (!user) {
+    console.log("[match] no user, redirect to login", { matchId: id });
     return redirect(`/login?next=/match/${id}`);
   }
+
+  console.log("[match] user loaded", { userId: user.id, matchId: id });
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -174,23 +186,60 @@ export default async function MatchPage(props: {
   }
 
   const canAccessPremium = canAccessPremiumFromProfile(profile ?? null);
+  console.log("[match] premium check", {
+    matchId: id,
+    userId: user.id,
+    canAccessPremium,
+  });
 
   if (!canAccessPremium) {
+    console.log("[match] no premium access, redirect /pricing", {
+      matchId: id,
+      userId: user.id,
+    });
     return redirect("/pricing");
   }
 
-  const { data: dashboard, error: dashboardError } = await supabase
-    .from("daily_dashboards")
-    .select("data")
-    .order("date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // ------------------------------------------------------------
+  // Récupération des dashboards sur une fenêtre de dates
+  // (aujourd'hui - 2 jours jusqu'à aujourd'hui + 13 jours)
+  // ------------------------------------------------------------
+  const today = new Date();
+  const startDateObj = new Date(today);
+  startDateObj.setDate(startDateObj.getDate() - 2);
 
-  if (dashboardError) {
-    console.error("[match] daily_dashboards error", dashboardError);
+  // On scanne jusqu'à J+13 pour couvrir les 14 jours générés par le cron
+  const endDateObj = new Date(today);
+  endDateObj.setDate(endDateObj.getDate() + 13);
+
+  const startDate = startDateObj.toISOString().slice(0, 10);
+  const endDate = endDateObj.toISOString().slice(0, 10);
+
+  console.log("[match] loading dashboards in range", {
+    matchId: id,
+    startDate,
+    endDate,
+  });
+
+  const { data, error: dashboardsError } = await supabase
+    .from("daily_dashboards")
+    .select("date,data")
+    .gte("date", startDate)
+    .lte("date", endDate)
+    .order("date", { ascending: false });
+
+  if (dashboardsError) {
+    console.error("[match] daily_dashboards error", dashboardsError);
   }
 
-  if (!dashboard?.data || !Array.isArray(dashboard.data.matches)) {
+  const dashboards = (data as DashboardRow[] | null) ?? [];
+
+  console.log("[match] dashboards fetched", {
+    matchId: id,
+    dashboardsCount: dashboards.length,
+  });
+
+  if (!dashboards.length) {
     return (
       <div className="min-h-screen bg-slate-50">
         <div className="max-w-3xl mx-auto px-4 py-10">
@@ -199,8 +248,7 @@ export default async function MatchPage(props: {
               Match introuvable
             </h1>
             <p className="text-sm text-slate-500">
-              Aucun dashboard n&apos;a été généré ou les données sont
-              manquantes.
+              Aucun dashboard n&apos;a été généré sur la période récente.
             </p>
           </div>
         </div>
@@ -208,7 +256,30 @@ export default async function MatchPage(props: {
     );
   }
 
-  const match = dashboard.data.matches.find((m: any) => String(m.id) === id);
+  // ------------------------------------------------------------
+  // Recherche du match dans tous les dashboards chargés
+  // ------------------------------------------------------------
+  let match: any | null = null;
+  let matchDashboardDate: string | null = null;
+
+  for (const row of dashboards) {
+    const matches = row.data?.matches ?? [];
+    if (!Array.isArray(matches)) continue;
+
+    const found = matches.find((m: any) => String(m.id) === String(id));
+
+    if (found) {
+      match = found;
+      matchDashboardDate = row.date;
+      break;
+    }
+  }
+
+  console.log("[match] search result", {
+    matchId: id,
+    found: Boolean(match),
+    matchDashboardDate,
+  });
 
   if (!match) {
     return (
@@ -219,13 +290,20 @@ export default async function MatchPage(props: {
               Match introuvable
             </h1>
             <p className="text-sm text-slate-500">
-              Ce match n&apos;existe pas dans le dashboard chargé.
+              Ce match n&apos;existe pas dans les dashboards chargés (J-2 à
+              J+13).
             </p>
           </div>
         </div>
       </div>
     );
   }
+
+  console.log("[match] match found", {
+    matchId: id,
+    league: match.league,
+    kickoff: match.kickoff ?? null,
+  });
 
   const homeSeason = match.homeSeason as
     | {
@@ -248,7 +326,13 @@ export default async function MatchPage(props: {
 
   const awayStanding = match.awayStanding as typeof homeStanding;
 
-  const kickoff = new Date(match.kickoff);
+  // Kickoff robuste (kickoff peut manquer ou être invalide)
+  const kickoffRaw: string | null =
+    typeof match.kickoff === "string" ? match.kickoff : null;
+  const kickoff = kickoffRaw && !Number.isNaN(new Date(kickoffRaw).getTime())
+    ? new Date(kickoffRaw)
+    : null;
+
   const venue: string | undefined =
     match.venue ?? match.stadium ?? match.ground ?? undefined;
 
@@ -288,14 +372,22 @@ export default async function MatchPage(props: {
                 {match.awayTeam}
               </h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                {match.league} •{" "}
-                {kickoff.toLocaleString("fr-FR", {
-                  weekday: "short",
-                  day: "2-digit",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {match.league}
+                {kickoff ? (
+                  <>
+                    {" "}
+                    •{" "}
+                    {kickoff.toLocaleString("fr-FR", {
+                      weekday: "short",
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </>
+                ) : (
+                  " • Horaire à confirmer"
+                )}
                 {venue ? ` • ${venue}` : ""}
               </p>
             </div>
@@ -351,17 +443,21 @@ export default async function MatchPage(props: {
                   Coup d&apos;envoi
                 </p>
                 <p className="text-base font-semibold text-slate-900">
-                  {kickoff.toLocaleTimeString("fr-FR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {kickoff
+                    ? kickoff.toLocaleTimeString("fr-FR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "—"}
                 </p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {kickoff.toLocaleDateString("fr-FR", {
-                    weekday: "short",
-                    day: "2-digit",
-                    month: "short",
-                  })}
+                  {kickoff
+                    ? kickoff.toLocaleDateString("fr-FR", {
+                        weekday: "short",
+                        day: "2-digit",
+                        month: "short",
+                      })
+                    : ""}
                 </p>
               </div>
 
@@ -400,7 +496,7 @@ export default async function MatchPage(props: {
                       {" %"}
                     </span>
                   </div>
-                  <PercentageBar value={match.over15Prob} />
+                  <PercentageBar value={match.over15Prob ?? 0} />
                 </div>
                 <div>
                   <div className="flex justify-between">
@@ -410,7 +506,7 @@ export default async function MatchPage(props: {
                       {" %"}
                     </span>
                   </div>
-                  <PercentageBar value={match.over25Prob} />
+                  <PercentageBar value={match.over25Prob ?? 0} />
                 </div>
                 <div>
                   <div className="flex justify-between">
@@ -420,7 +516,7 @@ export default async function MatchPage(props: {
                       {" %"}
                     </span>
                   </div>
-                  <PercentageBar value={match.bttsProb} />
+                  <PercentageBar value={match.bttsProb ?? 0} />
                 </div>
               </div>
             </div>
@@ -436,7 +532,7 @@ export default async function MatchPage(props: {
           )}
         </section>
 
-        {/* CONTENU : une seule colonne, sections empilées (plus simple à lire) */}
+        {/* CONTENU : sections empilées */}
         <div className="space-y-5">
           {/* Synthèse ZoneStat */}
           <section className="rounded-3xl border border-slate-200 bg-white px-5 py-4 space-y-3 shadow-sm">
@@ -490,9 +586,6 @@ export default async function MatchPage(props: {
               <h2 className="text-sm font-semibold text-slate-900">
                 Dynamiques & forme récente
               </h2>
-              <span className="text-[11px] text-slate-500">
-                Séries + position en championnat
-              </span>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
@@ -792,7 +885,7 @@ export default async function MatchPage(props: {
             )}
           </section>
 
-          {/* IA + stats match regroupés (bloc plus compact) */}
+          {/* IA + stats match regroupés */}
           <section className="rounded-3xl border border-slate-200 bg-white px-5 py-4 space-y-4 shadow-sm">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
               {/* IA */}
@@ -814,7 +907,7 @@ export default async function MatchPage(props: {
                 ) : (
                   <div className="space-y-2 text-sm">
                     <div>
-                      <div className="flex justify-between text-xs">
+                      <div className="flex justify_between text-xs">
                         <span className="text-slate-600">
                           Victoire domicile
                         </span>
@@ -823,24 +916,24 @@ export default async function MatchPage(props: {
                         </span>
                       </div>
                       <PercentageBar
-                        value={match.predictions.homeWinProb}
+                        value={match.predictions.homeWinProb ?? 0}
                         thickness="h-1.5"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-xs">
+                      <div className="flex justify_between text-xs">
                         <span className="text-slate-600">Match nul</span>
                         <span className="font-medium text-slate-900">
                           {match.predictions.drawProb}%
                         </span>
                       </div>
                       <PercentageBar
-                        value={match.predictions.drawProb}
+                        value={match.predictions.drawProb ?? 0}
                         thickness="h-1.5"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-xs">
+                      <div className="flex justify_between text-xs">
                         <span className="text-slate-600">
                           Victoire extérieur
                         </span>
@@ -849,7 +942,7 @@ export default async function MatchPage(props: {
                         </span>
                       </div>
                       <PercentageBar
-                        value={match.predictions.awayWinProb}
+                        value={match.predictions.awayWinProb ?? 0}
                         thickness="h-1.5"
                       />
                     </div>

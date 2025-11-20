@@ -1,3 +1,4 @@
+// src/app/dashboard/DashboardClient.tsx
 "use client";
 
 import {
@@ -6,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Search, Clock, Sparkles, ChevronDown } from "lucide-react";
+import { Search, Clock } from "lucide-react";
 import Link from "next/link";
 import { SportsTabs, type SportTabId } from "@/components/dashboard/sports-tabs";
 
@@ -16,6 +17,11 @@ type SportKind = "football" | "tennis";
 
 // Match brut venant de daily_dashboards.data.matches
 type RawMatch = any;
+
+interface DashboardDay {
+  date: string;       // "2025-11-22"
+  matches: RawMatch[];
+}
 
 interface EnrichedMatch {
   id: string;
@@ -29,11 +35,13 @@ interface EnrichedMatch {
   importance: Importance;
   homeLogo?: string;
   awayLogo?: string;
+
+  dateKey: string;    // "2025-11-22"
+  dateLabel: string;  // "Samedi 22/11"
 }
 
 interface DashboardClientProps {
-  date: string;
-  matches: RawMatch[];
+  days: DashboardDay[];
 }
 
 interface UserPrediction {
@@ -80,7 +88,21 @@ function computeImportance(leagueName: string): Importance {
   return "medium";
 }
 
-function normalize(raw: RawMatch): EnrichedMatch {
+function formatDayLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+
+  const weekday = d.toLocaleDateString("fr-FR", { weekday: "long" });
+  const day = d.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+
+  // ex: "Samedi 22/11"
+  return `${weekday.charAt(0).toUpperCase() + weekday.slice(1)} ${day}`;
+}
+
+function normalize(raw: RawMatch, dashboardDate: string): EnrichedMatch {
   const r = raw as any;
 
   const fixture = r.fixture ?? {};
@@ -126,6 +148,9 @@ function normalize(raw: RawMatch): EnrichedMatch {
     timestamp = Math.floor(new Date(fixture.date).getTime() / 1000);
   } else if (r.kickoff) {
     timestamp = Math.floor(new Date(r.kickoff).getTime() / 1000);
+  } else if (dashboardDate) {
+    // fallback : on utilise la date du dashboard + heure 00:00
+    timestamp = Math.floor(new Date(dashboardDate).getTime() / 1000);
   }
 
   const dateObj = timestamp ? new Date(timestamp * 1000) : new Date();
@@ -145,6 +170,9 @@ function normalize(raw: RawMatch): EnrichedMatch {
   const venue: string | undefined =
     fixture.venue?.name ?? r.venue ?? r.stadium ?? undefined;
 
+  const dateKey = dashboardDate || dateObj.toISOString().slice(0, 10);
+  const dateLabel = formatDayLabel(dateKey);
+
   return {
     id,
     league: leagueName,
@@ -157,26 +185,28 @@ function normalize(raw: RawMatch): EnrichedMatch {
     importance,
     homeLogo,
     awayLogo,
+    dateKey,
+    dateLabel,
   };
 }
 
-export default function DashboardClient({ date, matches }: DashboardClientProps) {
+export default function DashboardClient({ days }: DashboardClientProps) {
   const [search, setSearch] = useState<string>("");
   const [importance] = useState<"all" | Importance>("all");
   const [aiInsights, setAiInsights] = useState<Record<string, AiInsight>>({});
-  const [visibleCount, setVisibleCount] = useState(20);
+  const [visibleCount, setVisibleCount] = useState(100);
   const [sportTab, setSportTab] = useState<SportTabId>("for-you");
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const isCompact = false;
-
   const items: EnrichedMatch[] = useMemo(
     () =>
-      (matches ?? [])
-        .map((raw) => normalize(raw))
+      (days ?? [])
+        .flatMap((day) =>
+          (day.matches ?? []).map((raw) => normalize(raw, day.date)),
+        )
         .sort((a, b) => a.timestamp - b.timestamp),
-    [matches]
+    [days],
   );
 
   const filteredMatches = useMemo(() => {
@@ -199,8 +229,8 @@ export default function DashboardClient({ date, matches }: DashboardClientProps)
   }, [items, importance, search, sportTab]);
 
   useEffect(() => {
-    setVisibleCount(20);
-  }, [importance, search, date, sportTab]);
+    setVisibleCount(100);
+  }, [importance, search, sportTab, days]);
 
   useEffect(() => {
     if (!loadMoreRef.current) return;
@@ -210,29 +240,66 @@ export default function DashboardClient({ date, matches }: DashboardClientProps)
       (entries) => {
         if (entries[0].isIntersecting) {
           setVisibleCount((prev) =>
-            prev + 20 > filteredMatches.length ? filteredMatches.length : prev + 20
+            prev + 50 > filteredMatches.length
+              ? filteredMatches.length
+              : prev + 50,
           );
         }
       },
-      { threshold: 1 }
+      { threshold: 1 },
     );
 
     observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
   }, [filteredMatches.length, visibleCount]);
 
-  const readableDate = useMemo(() => {
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return date;
-    return d.toLocaleDateString("fr-FR", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [date]);
+  const visibleMatches = filteredMatches.slice(0, visibleCount);
 
   const totalMatches = items.length;
+
+  // Regroupement par jour (dateKey)
+  const groupedByDate = useMemo(() => {
+    const map = new Map<
+      string,
+      { dateKey: string; dateLabel: string; matches: EnrichedMatch[] }
+    >();
+
+    for (const m of visibleMatches) {
+      const key = m.dateKey;
+      if (!map.has(key)) {
+        map.set(key, { dateKey: key, dateLabel: m.dateLabel, matches: [] });
+      }
+      map.get(key)!.matches.push(m);
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.dateKey).getTime() - new Date(b.dateKey).getTime(),
+    );
+  }, [visibleMatches]);
+
+  // Label global semaine : "Du ven. 21/11 au jeu. 27/11"
+  const weekLabel = useMemo(() => {
+    if (!days.length) return "";
+    const first = new Date(days[0].date);
+    const last = new Date(days[days.length - 1].date);
+
+    if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) {
+      return "";
+    }
+
+    const startStr = first.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+    });
+    const endStr = last.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+    });
+
+    return `Du ${startStr} au ${endStr}`;
+  }, [days]);
 
   function detectSport(m: EnrichedMatch): SportKind {
     const txt = (
@@ -295,17 +362,15 @@ export default function DashboardClient({ date, matches }: DashboardClientProps)
     }
   }
 
-  const visibleMatches = filteredMatches.slice(0, visibleCount);
-
   return (
-    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-3 space-y-3">
-
+    <div className="max-w-6xl mx-auto px-0 sm:px-4 py-3 space-y-4">
       {/* HEADER */}
       <header className="space-y-1">
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-          Matchs du {readableDate}
+          Calendrier Ligue 1
         </h1>
         <p className="text-sm text-fg-muted">
+          {weekLabel && <span>{weekLabel} · </span>}
           {totalMatches} match{totalMatches > 1 ? "s" : ""} analysé
           {totalMatches > 1 ? "s" : ""} par ZoneStat
         </p>
@@ -316,78 +381,100 @@ export default function DashboardClient({ date, matches }: DashboardClientProps)
 
       {/* SEARCH */}
       <section>
-        <label className="text-xs font-medium text-fg-muted">Recherche rapide</label>
+        <label className="text-xs font-medium text-fg-muted">
+          Recherche rapide
+        </label>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-subtle" />
           <input
             className="w-full bg-white border border-line rounded-full pl-10 pr-3 py-2 text-sm placeholder:text-fg-subtle focus:ring-2 focus:ring-[var(--color-primary)]/30"
-            placeholder="PSG, Premier League, Milan..."
+            placeholder="PSG, Marseille, Lens..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
       </section>
 
-      {/* LISTE MATCHS */}
-      <section className="space-y-1.5">
-        {filteredMatches.map((m) => {
-          const ai = aiInsights[m.id];
+      {/* BLOCS PAR JOUR (style Betclic) */}
+      <section className="space-y-3">
+        {groupedByDate.map((group) => (
+          <div
+            key={group.dateKey}
+            className="rounded-3xl bg-white border border-line shadow-[0_12px_30px_rgba(15,23,42,0.06)] overflow-hidden"
+          >
+            {/* Bandeau jour */}
+            <div className="px-4 py-2.5 sm:px-5 bg-slate-50 border-b border-line flex items-center justify-between">
+              <span className="text-sm font-semibold">
+                {group.dateLabel}
+              </span>
+              <span className="text-[11px] text-fg-subtle">
+                {group.matches.length} match
+                {group.matches.length > 1 ? "s" : ""} de Ligue 1
+              </span>
+            </div>
 
-          return (
-            <Link
-              key={m.id}
-              href={`/match/${m.id}`}
-              className="block rounded-[26px] border border-line bg-white px-5 py-4 sm:px-6 sm:py-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)] hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)] transition"
-            >
-              {/* Ligne principale */}
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {/* Liste des matchs du jour */}
+            <div className="divide-y divide-slate-100">
+              {group.matches.map((m) => {
+                const ai = aiInsights[m.id];
 
-                <div className="flex items-center gap-3 text-xs text-fg-muted w-full sm:w-48">
-                  <div>
-                    <span className="text-sm font-semibold flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" />
-                      {m.hour}
-                    </span>
-                    <span className="text-[11px] text-fg-subtle mt-0.5 block">
-                      {m.league}
-                    </span>
-                  </div>
-                </div>
+                return (
+                  <Link
+                    key={m.id}
+                    href={`/match/${m.id}`}
+                    className="block px-4 py-3 sm:px-5 sm:py-3.5 active:bg-slate-50/80"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      {/* Heure + ligue */}
+                      <div className="flex items-center gap-3 min-w-[90px]">
+                        <span className="text-sm font-semibold flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5 text-fg-subtle" />
+                          {m.hour}
+                        </span>
+                      </div>
 
-                <div className="flex-1 text-sm font-medium text-center sm:text-left">
-                  <div className="flex items-center justify-center gap-3 sm:gap-4">
-                    <div className="flex items-center gap-2">
-                      {m.homeLogo && (
-                        <img
-                          src={m.homeLogo}
-                          alt={m.home}
-                          className="h-6 w-6 object-contain"
-                        />
-                      )}
-                      <span className="truncate">{m.home}</span>
+                      {/* Duel équipes */}
+                      <div className="flex-1 flex items-center justify-center gap-3 sm:gap-4 text-sm font-medium text-center sm:text-left">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {m.homeLogo && (
+                            <img
+                              src={m.homeLogo}
+                              alt={m.home}
+                              className="h-6 w-6 object-contain"
+                            />
+                          )}
+                          <span className="truncate">{m.home}</span>
+                        </div>
+
+                        <span className="text-[10px] uppercase text-fg-subtle">
+                          vs
+                        </span>
+
+                        <div className="flex items-center gap-2 min-w-0">
+                          {m.awayLogo && (
+                            <img
+                              src={m.awayLogo}
+                              alt={m.away}
+                              className="h-6 w-6 object-contain"
+                            />
+                          )}
+                          <span className="truncate">{m.away}</span>
+                        </div>
+                      </div>
+
+                      {/* Bouton / tag à droite */}
+                      <div className="hidden sm:flex">
+                        <span className="text-[11px] px-3 py-1 rounded-full bg-slate-900 text-white font-medium">
+                          Voir la fiche
+                        </span>
+                      </div>
                     </div>
-
-                    <span className="text-[10px] uppercase text-fg-subtle">
-                      vs
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      {m.awayLogo && (
-                        <img
-                          src={m.awayLogo}
-                          alt={m.away}
-                          className="h-6 w-6 object-contain"
-                        />
-                      )}
-                      <span className="truncate">{m.away}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-            </Link>
-          );
-        })}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
         <div ref={loadMoreRef} className="h-10"></div>
       </section>

@@ -8,18 +8,17 @@ export const dynamic = "force-dynamic";
 /**
  * Normalise un secret :
  * - trim des espaces
- * - supprime des guillemets autour ("xxx" ou 'xxx')
+ * - supprime les guillemets éventuels
  */
 function normalizeSecret(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
-  // enlève un éventuel wrapping par guillemets simples/doubles
   const unquoted = trimmed.replace(/^['"](.+)['"]$/, "$1");
   return unquoted || null;
 }
 
 export async function POST(req: Request) {
-  // Récupération & normalisation du header Authorization
+  // Auth du cron
   const authHeaderRaw = req.headers.get("authorization");
   const cronSecretRaw = process.env.CRON_SECRET;
 
@@ -31,45 +30,49 @@ export async function POST(req: Request) {
   );
 
   if (!cronSecret || !headerToken || headerToken !== cronSecret) {
-    // Petit log côté serveur (n’apparaît pas au client)
-    console.warn("[cron/generate-dashboard] Unauthorized call", {
-      hasCronSecret: Boolean(cronSecretRaw),
-      hasAuthHeader: Boolean(authHeaderRaw),
+    console.warn("[cron] Unauthorized call", {
+      hasSecret: Boolean(cronSecretRaw),
+      hasHeader: Boolean(authHeaderRaw),
     });
 
-    return new NextResponse("Unauthorized", {
-      status: 401,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-      },
-    });
+    return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  // Par défaut : date du jour (UTC)
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  // Génération J0 à J+6
+  const today = new Date();
+  const results: any[] = [];
 
-  try {
-    const payload = await generateAndStoreDashboardForDate(dateStr);
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
 
-    return NextResponse.json(
-      {
-        ok: true,
+    const dateStr = d.toISOString().slice(0, 10);
+
+    try {
+      const payload = await generateAndStoreDashboardForDate(dateStr);
+      results.push({
         date: dateStr,
         matchCount: payload.matches.length,
-      },
-      { status: 200 },
-    );
-  } catch (error) {
-    console.error("[cron/generate-dashboard] error", error);
+        ok: true,
+      });
 
-    return NextResponse.json(
-      {
-        ok: false,
+      console.log(`[cron] ${dateStr} → ${payload.matches.length} matchs`);
+    } catch (e) {
+      console.error("[cron] Error on", dateStr, e);
+      results.push({
         date: dateStr,
-        error: "generation_failed",
-      },
-      { status: 500 },
-    );
+        ok: false,
+        error: true,
+      });
+    }
   }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      generated: results.length,
+      details: results,
+    },
+    { status: 200 },
+  );
 }
